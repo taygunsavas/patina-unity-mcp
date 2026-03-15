@@ -64,7 +64,8 @@ impl UnityMcpServer {
         &self,
         Parameters(args): Parameters<LogToConsoleArgs>,
     ) -> Result<CallToolResult, McpError> {
-        let params = serde_json::to_value(&args).map_err(|e| McpError::internal_error(e.to_string(), None))?;
+        let params = serde_json::to_value(&args)
+            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
         self.call_bridge("log_to_console", params).await
     }
 
@@ -76,7 +77,8 @@ impl UnityMcpServer {
         &self,
         Parameters(args): Parameters<GetHierarchyArgs>,
     ) -> Result<CallToolResult, McpError> {
-        let params = serde_json::to_value(&args).map_err(|e| McpError::internal_error(e.to_string(), None))?;
+        let params = serde_json::to_value(&args)
+            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
         self.call_bridge("get_hierarchy", params).await
     }
 
@@ -88,7 +90,8 @@ impl UnityMcpServer {
         &self,
         Parameters(args): Parameters<CreateGameObjectArgs>,
     ) -> Result<CallToolResult, McpError> {
-        let params = serde_json::to_value(&args).map_err(|e| McpError::internal_error(e.to_string(), None))?;
+        let params = serde_json::to_value(&args)
+            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
         self.call_bridge("create_game_object", params).await
     }
 }
@@ -102,12 +105,9 @@ impl ServerHandler for UnityMcpServer {
                 version: env!("CARGO_PKG_VERSION").into(),
                 ..Default::default()
             },
-            instructions: Some(
-                "Patina: a lean, extensible Unity MCP for agentic tools".into(),
-            ),
+            instructions: Some("Patina: a lean, extensible Unity MCP for agentic tools".into()),
             capabilities: ServerCapabilities::builder().enable_tools().build(),
             ..Default::default()
         }
     }
 }
-
