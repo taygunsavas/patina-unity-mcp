@@ -98,7 +98,7 @@ jobs:
           Copy-Item "${{ matrix.binary-path }}" "dist/${{ matrix.output-name }}" -Force
 
       - name: Upload binary artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: ${{ matrix.artifact-name }}
           path: dist/${{ matrix.output-name }}
@@ -143,14 +143,14 @@ jobs:
           Compress-Archive -Path "dist/unity-package/*" -DestinationPath "dist/patina-upm-${{ needs.verify.outputs.version }}.zip"
 
       - name: Upload staged Unity package
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: patina-unity-package
           path: dist/unity-package
           if-no-files-found: error
 
       - name: Upload release bundles
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: patina-release-bundles
           path: |
