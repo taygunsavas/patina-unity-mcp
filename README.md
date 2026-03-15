@@ -67,6 +67,8 @@ The setup window also detects stale entries, missing hosts, and provides a clean
 | **Phase 2** | Expanded coverage: scene management, asset operations, component editing |
 | **Phase 3** | Distribution and reach: more hosts, registry publishing |
 
+For the public contributor-facing roadmap, see [ROADMAP.md](ROADMAP.md).
+
 ## Release Flow
 
 1. Keep `rust-server/Cargo.toml` and `unity-package/package.json` on the same semantic version.
@@ -93,6 +95,15 @@ pwsh -File scripts/stage-local-upm.ps1
 Then add the package from disk in Unity: `dist/local-upm/com.taygunsavas.patina-unity-mcp/package.json`.
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for the full contributor workflow.
+
+## Community and Contributing
+
+- Start with [CONTRIBUTING.md](CONTRIBUTING.md) for the local development loop, validation expectations, and pull request guidance.
+- Use GitHub issue forms for reproducible bugs, feature proposals, and usage questions so maintainers get the context they need.
+- Read [.github/SUPPORT.md](.github/SUPPORT.md) before opening a help request.
+- Read [.github/SECURITY.md](.github/SECURITY.md) for private vulnerability reporting.
+- Read [.github/CODE_OF_CONDUCT.md](.github/CODE_OF_CONDUCT.md) before participating in issues and pull requests.
+- Read [ROADMAP.md](ROADMAP.md) for current public priorities and direction.
 
 ## Requirements
 

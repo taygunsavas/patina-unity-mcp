@@ -1,5 +1,7 @@
 # Contributing
 
+Thanks for helping improve Patina. This repository is maintained as an open-source project, so clear issue reports, focused pull requests, and reproducible validation are all important.
+
 ## Repository Model
 
 Patina keeps source and release artifacts separate:
@@ -7,6 +9,13 @@ Patina keeps source and release artifacts separate:
 - `main` contains the source for `unity-package/` and `rust-server/`.
 - CI assembles the distributable Unity package artifact for registry publication.
 - End users install from registry-backed Unity Package Manager channels, not from a Git URL to this repository.
+
+## Before You Start
+
+- Read `README.md` for the product overview and install model.
+- Check `ROADMAP.md` and existing issues before starting larger work.
+- If you plan to change behavior, release flow, or public tooling contracts, open or comment on an issue first so the approach can be aligned early.
+- For support questions or setup trouble, prefer the GitHub support-oriented issue form instead of opening an unfocused bug.
 
 ## Contributor Runtime Override
 
@@ -58,6 +67,36 @@ Then add this package from disk in Unity:
 
 - `dist/local-upm/com.taygunsavas.patina-unity-mcp/package.json`
 
+## Validation Expectations
+
+Run the checks that match your change before opening a pull request:
+
+```powershell
+cd rust-server
+cargo fmt --all
+cargo test
+```
+
+- If you changed packaging or runtime publishing behavior, also run `pwsh -File scripts/publish-dev-runtime.ps1`.
+- If you changed the Unity package layout, also run `pwsh -File scripts/stage-local-upm.ps1`.
+- If your change affects Unity editor behavior, include manual validation notes from a real Unity project in the pull request.
+
+## Pull Request Guidelines
+
+- Keep each pull request focused on a single concern.
+- Link the related issue or explain why no issue exists.
+- Update `README.md`, `ROADMAP.md`, or `.github/` guidance when contributor or user-facing behavior changes.
+- Include the commands you ran and any Unity-side manual checks in the PR description.
+- Add screenshots or logs when changing setup UX, package import behavior, or editor window output.
+
+## Reporting Paths
+
+- Use the `Bug Report` issue form for reproducible defects.
+- Use the `Feature Request` issue form for product or workflow proposals.
+- Use the `Usage Question` issue form for help requests and setup questions.
+- Follow `.github/SECURITY.md` for vulnerabilities; do not open public issues for security reports.
+- Follow `.github/CODE_OF_CONDUCT.md` in all project spaces.
+
 ## Release Notes For Maintainers
 
 - Keep `rust-server/Cargo.toml` and `unity-package/package.json` on the same version.
@@ -71,4 +110,3 @@ Then add this package from disk in Unity:
 - Registry users should stay on the packaged runtime path.
 - If a host is still pointing to an older runtime path, re-run `One-Click Setup` after publishing the new dev runtime.
 - If you switch between the packaged runtime and the contributor runtime, either rerun `One-Click Setup` immediately or use `Remove Patina From Hosts` before switching.
-

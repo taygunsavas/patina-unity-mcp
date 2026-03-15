@@ -1,0 +1,63 @@
+name: Usage Question
+description: Ask for setup help, contributor workflow guidance, or clarification about how Patina is intended to be used.
+title: "[Question]: "
+labels: ["question", "triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reaching out.
+
+        Please use this form for help requests and usage questions. For reproducible defects, use the bug report form instead. For vulnerabilities, follow `.github/SECURITY.md`.
+  - type: dropdown
+    id: topic
+    attributes:
+      label: Topic
+      description: What do you need help with?
+      options:
+        - Installing or updating the Unity package
+        - One-Click Setup or host configuration
+        - Local contributor runtime workflow
+        - Release or packaging workflow
+        - Understanding a tool or behavior
+        - Other
+    validations:
+      required: true
+  - type: textarea
+    id: question
+    attributes:
+      label: Question
+      description: What are you trying to do, and where are you getting stuck?
+      placeholder: Describe the goal first, then the exact point of confusion or failure.
+    validations:
+      required: true
+  - type: textarea
+    id: context
+    attributes:
+      label: Context
+      description: Share the environment and any steps you already tried.
+      placeholder: |
+        - OS:
+        - Unity version:
+        - MCP host:
+        - Patina version / commit:
+        - What I already tried:
+    validations:
+      required: true
+  - type: textarea
+    id: references
+    attributes:
+      label: Logs, Screenshots, or References
+      description: Paste errors, screenshots, command output, or links that could help.
+      render: shell
+    validations:
+      required: false
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Before Submitting
+      options:
+        - label: I checked `README.md`, `CONTRIBUTING.md`, or `.github/SUPPORT.md` first.
+          required: true
+        - label: This is not a security disclosure.
+          required: true

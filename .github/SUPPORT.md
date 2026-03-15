@@ -13,8 +13,9 @@ Use the available issue templates for the best response:
 
 - `Bug Report` for reproducible defects in the Rust server, Unity package, setup flow, or release tooling
 - `Feature Request` for proposals and improvement ideas
+- `Usage Question` for setup help, contributor workflow questions, or "how do I..." requests
 
-If your request does not fit either template, open a general issue and explain the context clearly.
+Blank issues are disabled on purpose so requests arrive with enough context. If none of the forms fit, use the `Usage Question` form and explain what you need.
 
 ## Security Issues
 

@@ -1,1 +1,11 @@
 blank_issues_enabled: false
+contact_links:
+  - name: Patina Support Guide
+    url: https://github.com/taygunsavas/patina-unity-mcp/blob/main/.github/SUPPORT.md
+    about: Read the support and issue-routing guidance before opening a request.
+  - name: Security Policy
+    url: https://github.com/taygunsavas/patina-unity-mcp/blob/main/.github/SECURITY.md
+    about: Report vulnerabilities privately and avoid public disclosure.
+  - name: Project Roadmap
+    url: https://github.com/taygunsavas/patina-unity-mcp/blob/main/ROADMAP.md
+    about: Review the near-term direction before proposing larger changes.
