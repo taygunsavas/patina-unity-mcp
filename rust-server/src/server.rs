@@ -99,15 +99,12 @@ impl UnityMcpServer {
 #[tool_handler]
 impl ServerHandler for UnityMcpServer {
     fn get_info(&self) -> ServerInfo {
-        ServerInfo {
-            server_info: Implementation {
-                name: "patina".into(),
-                version: env!("CARGO_PKG_VERSION").into(),
-                ..Default::default()
-            },
-            instructions: Some("Patina: a lean, extensible Unity MCP for agentic tools".into()),
-            capabilities: ServerCapabilities::builder().enable_tools().build(),
-            ..Default::default()
-        }
+        let mut info = ServerInfo::default();
+        info.server_info = Implementation::default();
+        info.server_info.name = "patina".into();
+        info.server_info.version = env!("CARGO_PKG_VERSION").into();
+        info.instructions = Some("Patina: a lean, extensible Unity MCP for agentic tools".into());
+        info.capabilities = ServerCapabilities::builder().enable_tools().build();
+        info
     }
 }
