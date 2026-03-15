@@ -104,6 +104,7 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for the full contributor workflow.
 - Read [.github/SECURITY.md](.github/SECURITY.md) for private vulnerability reporting.
 - Read [.github/CODE_OF_CONDUCT.md](.github/CODE_OF_CONDUCT.md) before participating in issues and pull requests.
 - Read [ROADMAP.md](ROADMAP.md) for current public priorities and direction.
+- Pull requests targeting `main` are expected to pass CI and go through CODEOWNERS + Copilot review once repository rules are enabled.
 
 ## Requirements
 
