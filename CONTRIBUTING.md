@@ -88,6 +88,7 @@ cargo test
 - Update `README.md`, `ROADMAP.md`, or `.github/` guidance when contributor or user-facing behavior changes.
 - Include the commands you ran and any Unity-side manual checks in the PR description.
 - Add screenshots or logs when changing setup UX, package import behavior, or editor window output.
+- Pull requests to `main` should be prepared for required CI, CODEOWNERS review, and automatic Copilot review.
 
 ## Reporting Paths
 
