@@ -1,0 +1,100 @@
+name: Bug Report
+description: Report a reproducible problem in the Rust server, Unity package, setup flow, or release process.
+title: "[Bug]: "
+labels: ["bug", "triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for helping improve Patina.
+
+        Please use this form for reproducible repository or product bugs. If you are reporting a security issue, do **not** open a public issue. Follow the guidance in `.github/SECURITY.md` instead.
+  - type: dropdown
+    id: affected-area
+    attributes:
+      label: Affected Area
+      description: Which part of the project appears to be broken?
+      options:
+        - Rust server
+        - Unity package
+        - Host setup / configuration
+        - GitHub workflow / release pipeline
+        - Documentation
+        - Other
+    validations:
+      required: true
+  - type: textarea
+    id: current-behavior
+    attributes:
+      label: Current Behavior
+      description: What happened?
+      placeholder: Describe the incorrect behavior, error, or regression you observed.
+    validations:
+      required: true
+  - type: textarea
+    id: expected-behavior
+    attributes:
+      label: Expected Behavior
+      description: What did you expect to happen instead?
+      placeholder: Describe the expected result.
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction-steps
+    attributes:
+      label: Reproduction Steps
+      description: Provide the smallest reliable set of steps to reproduce the issue.
+      placeholder: |
+        1. Clone the repository / install the package
+        2. Run `...`
+        3. In Unity, open `...`
+        4. Observe `...`
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Version or Commit
+      description: Which version, tag, branch, or commit were you using?
+      placeholder: e.g. v1.0.0, main, or a commit SHA
+    validations:
+      required: true
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: Share the environment details needed to debug the issue.
+      placeholder: |
+        - OS:
+        - Unity version:
+        - MCP host:
+        - Rust version (if building locally):
+        - Install mode: packaged release / development mode
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs, Screenshots, or Repro Project
+      description: Paste relevant logs, stack traces, screenshots, or links to a minimal repro.
+      render: shell
+    validations:
+      required: false
+  - type: textarea
+    id: additional-context
+    attributes:
+      label: Additional Context
+      description: Add anything else that may help us investigate.
+    validations:
+      required: false
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Before Submitting
+      options:
+        - label: I searched existing issues for the same or similar problem.
+          required: true
+        - label: I can still reproduce this on the latest relevant version or current `main`.
+          required: true
+        - label: This is not a security disclosure.
+          required: true

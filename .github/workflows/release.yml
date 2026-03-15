@@ -1,0 +1,295 @@
+name: release
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Release version tag, e.g. v1.0.0"
+        required: true
+        type: string
+      publish_npm:
+        description: "Publish the packaged Unity artifact to the configured npm-compatible registry"
+        required: true
+        type: boolean
+        default: true
+      publish_openupm:
+        description: "Publish the packaged Unity artifact to the configured OpenUPM-compatible registry"
+        required: true
+        type: boolean
+        default: true
+      create_github_release:
+        description: "Create a GitHub release with the packaged Unity artifact and raw binaries"
+        required: true
+        type: boolean
+        default: true
+
+permissions:
+  contents: write
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Verify version sync
+        shell: pwsh
+        run: ./scripts/assert-version-sync.ps1 -Tag "${{ inputs.version }}"
+
+      - name: Resolve version
+        id: version
+        shell: pwsh
+        run: |
+          $version = "${{ inputs.version }}".TrimStart("v")
+          "version=$version" >> $env:GITHUB_OUTPUT
+
+  build-binaries:
+    needs: verify
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            rust-target: x86_64-pc-windows-msvc
+            artifact-name: patina-server-x86_64-win
+            output-name: patina-server.exe
+            binary-path: rust-server/target/x86_64-pc-windows-msvc/release/patina-server.exe
+          - os: ubuntu-latest
+            rust-target: x86_64-unknown-linux-gnu
+            artifact-name: patina-server-x86_64-linux
+            output-name: patina-server
+            binary-path: rust-server/target/x86_64-unknown-linux-gnu/release/patina-server
+          - os: macos-13
+            rust-target: x86_64-apple-darwin
+            artifact-name: patina-server-x86_64-macos
+            output-name: patina-server
+            binary-path: rust-server/target/x86_64-apple-darwin/release/patina-server
+          - os: macos-14
+            rust-target: aarch64-apple-darwin
+            artifact-name: patina-server-aarch64-macos
+            output-name: patina-server
+            binary-path: rust-server/target/aarch64-apple-darwin/release/patina-server
+    runs-on: ${{ matrix.os }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.rust-target }}
+
+      - name: Cache cargo dependencies
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: rust-server
+
+      - name: Build release binary
+        working-directory: rust-server
+        run: cargo build --release --target ${{ matrix.rust-target }}
+
+      - name: Stage binary artifact
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path dist | Out-Null
+          Copy-Item "${{ matrix.binary-path }}" "dist/${{ matrix.output-name }}" -Force
+
+      - name: Upload binary artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact-name }}
+          path: dist/${{ matrix.output-name }}
+          if-no-files-found: error
+
+  package-upm:
+    needs:
+      - verify
+      - build-binaries
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Download binary artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Stage distributable Unity package
+        shell: pwsh
+        run: |
+          ./scripts/stage-upm-package.ps1 `
+            -SourcePackagePath "unity-package" `
+            -ArtifactsPath "artifacts" `
+            -OutputPath "dist/unity-package" `
+            -Version "${{ needs.verify.outputs.version }}"
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Pack npm-compatible tarball
+        shell: pwsh
+        run: |
+          npm pack ./dist/unity-package --pack-destination dist
+
+      - name: Archive Unity package bundle
+        shell: pwsh
+        run: |
+          Compress-Archive -Path "dist/unity-package/*" -DestinationPath "dist/patina-upm-${{ needs.verify.outputs.version }}.zip"
+
+      - name: Upload staged Unity package
+        uses: actions/upload-artifact@v4
+        with:
+          name: patina-unity-package
+          path: dist/unity-package
+          if-no-files-found: error
+
+      - name: Upload release bundles
+        uses: actions/upload-artifact@v4
+        with:
+          name: patina-release-bundles
+          path: |
+            dist/*.tgz
+            dist/patina-upm-${{ needs.verify.outputs.version }}.zip
+          if-no-files-found: error
+
+  publish-npm:
+    needs:
+      - verify
+      - package-upm
+    if: ${{ inputs.publish_npm && secrets.NPM_TOKEN != '' }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download release bundles
+        uses: actions/download-artifact@v4
+        with:
+          name: patina-release-bundles
+          path: dist
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Publish package to npm-compatible registry
+        shell: pwsh
+        env:
+          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+          NPM_REGISTRY_URL: ${{ vars.NPM_REGISTRY_URL }}
+        run: |
+          $registryUrl = $env:NPM_REGISTRY_URL
+          if ([string]::IsNullOrWhiteSpace($registryUrl)) {
+            $registryUrl = "https://registry.npmjs.org/"
+          }
+
+          $tarball = Get-ChildItem dist -Filter *.tgz | Select-Object -First 1 -ExpandProperty FullName
+          if (-not $tarball) {
+            throw "Could not find packaged tarball to publish."
+          }
+
+          $registryUri = [Uri]$registryUrl
+          $registryPath = $registryUri.AbsolutePath.TrimEnd("/")
+          $registryTokenKey = if ([string]::IsNullOrWhiteSpace($registryPath) -or $registryPath -eq "/") {
+            "//{0}/:_authToken" -f $registryUri.Authority
+          } else {
+            "//{0}{1}/:_authToken" -f $registryUri.Authority, $registryPath + "/"
+          }
+
+          $tempNpmrc = Join-Path $env:RUNNER_TEMP "patina-npmrc"
+          @(
+            "registry=$registryUrl"
+            "$registryTokenKey=$env:NPM_TOKEN"
+            "always-auth=true"
+          ) | Set-Content -Path $tempNpmrc -Encoding ascii
+
+          $env:NPM_CONFIG_USERCONFIG = $tempNpmrc
+          npm publish $tarball --access public --registry $registryUrl
+
+  publish-openupm:
+    needs:
+      - verify
+      - package-upm
+    if: ${{ inputs.publish_openupm && secrets.OPENUPM_TOKEN != '' && vars.OPENUPM_REGISTRY_URL != '' }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download release bundles
+        uses: actions/download-artifact@v4
+        with:
+          name: patina-release-bundles
+          path: dist
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Publish package to OpenUPM-compatible registry
+        shell: pwsh
+        env:
+          OPENUPM_TOKEN: ${{ secrets.OPENUPM_TOKEN }}
+          OPENUPM_REGISTRY_URL: ${{ vars.OPENUPM_REGISTRY_URL }}
+        run: |
+          $tarball = Get-ChildItem dist -Filter *.tgz | Select-Object -First 1 -ExpandProperty FullName
+          if (-not $tarball) {
+            throw "Could not find packaged tarball to publish."
+          }
+
+          $registryUri = [Uri]$env:OPENUPM_REGISTRY_URL
+          $registryPath = $registryUri.AbsolutePath.TrimEnd("/")
+          $registryTokenKey = if ([string]::IsNullOrWhiteSpace($registryPath) -or $registryPath -eq "/") {
+            "//{0}/:_authToken" -f $registryUri.Authority
+          } else {
+            "//{0}{1}/:_authToken" -f $registryUri.Authority, $registryPath + "/"
+          }
+
+          $tempNpmrc = Join-Path $env:RUNNER_TEMP "patina-openupm-npmrc"
+          @(
+            "registry=$env:OPENUPM_REGISTRY_URL"
+            "$registryTokenKey=$env:OPENUPM_TOKEN"
+            "always-auth=true"
+          ) | Set-Content -Path $tempNpmrc -Encoding ascii
+
+          $env:NPM_CONFIG_USERCONFIG = $tempNpmrc
+          npm publish $tarball --access public --registry $env:OPENUPM_REGISTRY_URL
+
+  github-release:
+    needs:
+      - verify
+      - build-binaries
+      - package-upm
+    if: ${{ inputs.create_github_release }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download binary artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Download release bundles
+        uses: actions/download-artifact@v4
+        with:
+          name: patina-release-bundles
+          path: dist
+
+      - name: Publish GitHub release assets
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ inputs.version }}
+          generate_release_notes: true
+          body: |
+            Secondary release channel for Patina.
+
+            Primary install path: scoped registry package publication.
+            Recommended Unity baseline for signed-package reliability: 6000.3.5f2 or newer.
+          files: |
+            dist/*.tgz
+            dist/*.zip
+            artifacts/patina-server-x86_64-win/patina-server.exe
+            artifacts/patina-server-x86_64-linux/patina-server
+            artifacts/patina-server-x86_64-macos/patina-server
+            artifacts/patina-server-aarch64-macos/patina-server

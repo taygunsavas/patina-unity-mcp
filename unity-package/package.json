@@ -1,0 +1,13 @@
+{
+  "name": "com.taygunsavas.patina-unity-mcp",
+  "version": "0.1.0",
+  "displayName": "Patina Unity MCP",
+  "description": "Local TCP bridge for MCP server communication with Unity Editor",
+  "unity": "6000.3",
+  "author": { "name": "Patina" },
+  "type": "tool",
+  "dependencies": {
+    "com.unity.nuget.newtonsoft-json": "3.2.1"
+  }
+}
+

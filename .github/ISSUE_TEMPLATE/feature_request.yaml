@@ -1,0 +1,74 @@
+name: Feature Request
+description: Suggest an improvement to the Rust server, Unity package, workflows, or contributor experience.
+title: "[Feature]: "
+labels: ["enhancement", "triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for sharing an idea.
+
+        Please focus on the problem you are trying to solve and how it would help users or contributors.
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      description: Which part of the project would this change affect?
+      options:
+        - Rust server
+        - Unity package
+        - Host setup / configuration
+        - GitHub workflow / release pipeline
+        - Documentation
+        - Contributor experience
+        - Other
+    validations:
+      required: true
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem to Solve
+      description: What limitation, pain point, or missed opportunity are you seeing?
+      placeholder: Describe the user or contributor problem first.
+    validations:
+      required: true
+  - type: textarea
+    id: proposed-solution
+    attributes:
+      label: Proposed Solution
+      description: What would you like to happen?
+      placeholder: Describe your preferred solution.
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives Considered
+      description: What other options did you evaluate?
+      placeholder: List workarounds, rejected ideas, or other approaches.
+    validations:
+      required: false
+  - type: textarea
+    id: impact
+    attributes:
+      label: Expected Impact
+      description: Who benefits from this and how?
+      placeholder: Explain the expected improvement for users, contributors, or maintainers.
+    validations:
+      required: true
+  - type: textarea
+    id: additional-context
+    attributes:
+      label: Additional Context
+      description: Add links, examples, prior art, screenshots, or implementation notes.
+    validations:
+      required: false
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Before Submitting
+      options:
+        - label: I searched existing issues and feature requests first.
+          required: true
+        - label: I am willing to help validate or implement this change if needed.
+          required: false

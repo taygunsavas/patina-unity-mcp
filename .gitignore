@@ -1,0 +1,25 @@
+# Rust
+rust-server/target/
+
+# Unity
+unity-package/Plugins/*/*.exe
+unity-package/Plugins/*/*.so
+unity-package/Plugins/*/*.dylib
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# CI staging
+dist/
+
+# Local tooling
+.claude/
+
+# OS
+.DS_Store
+Thumbs.db
+AGENTS.md
+/docs

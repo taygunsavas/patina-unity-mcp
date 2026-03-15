@@ -1,0 +1,64 @@
+name: validate
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Verify version sync
+        shell: pwsh
+        run: ./scripts/assert-version-sync.ps1
+
+      - name: Validate package layout
+        shell: pwsh
+        run: |
+          $required = @(
+            "unity-package/package.json",
+            "unity-package/Editor/Patina.Editor.asmdef",
+            "unity-package/Plugins/x86_64-win/.gitkeep",
+            "unity-package/Plugins/x86_64-linux/.gitkeep",
+            "unity-package/Plugins/x86_64-macos/.gitkeep",
+            "unity-package/Plugins/aarch64-macos/.gitkeep"
+          )
+          foreach ($path in $required) {
+            if (-not (Test-Path $path)) {
+              throw "Missing required package path: $path"
+            }
+          }
+          Write-Host "Package layout OK."
+
+  rust:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+
+      - name: Cache cargo dependencies
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: rust-server
+
+      - name: Cargo fmt check
+        working-directory: rust-server
+        run: cargo fmt --check
+
+      - name: Cargo test
+        working-directory: rust-server
+        run: cargo test
+
+      - name: Cargo check (release)
+        working-directory: rust-server
+        run: cargo check --release
