@@ -19,14 +19,16 @@ Patina keeps source and release artifacts separate:
 
 ## Contributor Runtime Override
 
-Contributors have an optional local runtime override for source-based iteration:
+Contributors have an optional local runtime override for source-based iteration only:
 
 - Packaged runtime: the binary already bundled into the published Unity package.
 - Local runtime override: a contributor-managed runtime under `dist/dev-runtime/current/<platform>/`.
 
-The local runtime override exists to avoid writing host configs directly against `rust-server/target/release/patina-server.exe` during local iteration.
+The local runtime override exists to avoid writing host configs directly against `rust-server/target/release/patina-server.exe` during local iteration. It is not the normal install path for registry users.
 
 ## Contributor Loop
+
+Use this loop when you are changing source files in this repository:
 
 1. Point a Unity project at the local package checkout.
 
@@ -49,7 +51,7 @@ pwsh -File scripts/publish-dev-runtime.ps1
 
 5. Click `One-Click Setup`.
 
-This writes host configs against the contributor runtime path instead of the packaged runtime when that local runtime is available.
+This writes host configs against the contributor runtime path instead of the packaged runtime when that local runtime is available. Re-run steps 2 through 5 after every source change that affects the Rust binary or the Unity bridge.
 
 6. When you need to clean up local host registrations, click `Remove Patina From Hosts`.
 
@@ -57,7 +59,7 @@ This removes only the `patina` MCP entry from supported host configs and leaves 
 
 ## Local Unity Testing
 
-For packaged-flow testing, stage a local Unity package artifact first:
+Use a staged local package when you want to verify the package exactly as it will be published:
 
 ```powershell
 pwsh -File scripts/stage-local-upm.ps1
@@ -66,6 +68,8 @@ pwsh -File scripts/stage-local-upm.ps1
 Then add this package from disk in Unity:
 
 - `dist/local-upm/com.taygunsavas.patina-unity-mcp/package.json`
+
+Prefer the staged local package for package-layout checks, import checks, and release-candidate validation. Prefer the source checkout flow when you need the shortest edit-build-setup loop.
 
 ## Validation Expectations
 
@@ -80,6 +84,7 @@ cargo test
 - If you changed packaging or runtime publishing behavior, also run `pwsh -File scripts/publish-dev-runtime.ps1`.
 - If you changed the Unity package layout, also run `pwsh -File scripts/stage-local-upm.ps1`.
 - If your change affects Unity editor behavior, include manual validation notes from a real Unity project in the pull request.
+- If you changed the local runtime selection behavior, also rerun `Remove Patina From Hosts` and `One-Click Setup` after republishing the dev runtime.
 
 ## Pull Request Guidelines
 

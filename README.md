@@ -79,21 +79,32 @@ For the public contributor-facing roadmap, see [ROADMAP.md](ROADMAP.md).
 
 ## Local Development
 
-### Build and publish a contributor runtime
+### Contributor source checkout
+Use this when you are editing `unity-package/` or `rust-server/` directly from the repository:
+
+1. Point Unity at the local package checkout.
+   - `file:<your-clone-path>/unity-package`
+2. Build the Rust server.
 ```bash
 cd rust-server && cargo build --release
 ```
+3. Publish the current binary into the local development runtime path.
 ```powershell
 pwsh -File scripts/publish-dev-runtime.ps1
 ```
+4. In Unity, open **Window > Patina Unity MCP**, enable **Use Local Runtime (Contributor)**, and click **One-Click Setup**.
 
-In Unity, load the package from disk, open **Window > Patina Unity MCP**, enable **Use Local Runtime (Contributor)**, and click **One-Click Setup**. Host configs will point to the local dev runtime instead of the packaged binary.
+This writes host configs against the local dev runtime instead of the packaged binary. Re-run **One-Click Setup** after every new `cargo build --release` + `publish-dev-runtime` pass, and use **Remove Patina From Hosts** before switching back to the packaged flow.
 
 ### Stage a local UPM test package
+Use this when you want to test the package as it will be published, not the raw source checkout:
 ```powershell
 pwsh -File scripts/stage-local-upm.ps1
 ```
-Then add the package from disk in Unity: `dist/local-upm/com.taygunsavas.patina-unity-mcp/package.json`.
+Then add the staged package from disk in Unity:
+- `dist/local-upm/com.taygunsavas.patina-unity-mcp/package.json`
+
+Prefer the staged local package when you are validating package layout, import behavior, or release packaging. Prefer the source checkout path when you are actively editing source and want the fastest edit-build-run loop.
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for the full contributor workflow.
 
