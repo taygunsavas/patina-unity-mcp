@@ -42,9 +42,26 @@ namespace Patina.Editor
 
         public static void RegisterBuiltInHandlers()
         {
+            // Phase 1
             RegisterHandler("log_to_console", new LogToConsoleHandler());
             RegisterHandler("get_hierarchy", new GetHierarchyHandler());
             RegisterHandler("create_game_object", new CreateGameObjectHandler());
+            // Phase 2 — Scene
+            RegisterHandler("get_scene_info", new GetSceneInfoHandler());
+            // Phase 2 — Components
+            RegisterHandler("add_component", new AddComponentHandler());
+            RegisterHandler("set_property", new SetPropertyHandler());
+            RegisterHandler("remove_component", new RemoveComponentHandler());
+            // Phase 2 — Hierarchy ops
+            RegisterHandler("reparent_game_object", new ReparentGameObjectHandler());
+            RegisterHandler("delete_game_object", new DeleteGameObjectHandler());
+            RegisterHandler("duplicate_game_object", new DuplicateGameObjectHandler());
+            // Phase 2 — Prefabs
+            RegisterHandler("create_prefab", new CreatePrefabHandler());
+            RegisterHandler("instantiate_prefab", new InstantiatePrefabHandler());
+            // Phase 2 — Assets
+            RegisterHandler("find_assets_by_type", new FindAssetsByTypeHandler());
+            RegisterHandler("find_assets_by_name", new FindAssetsByNameHandler());
         }
 
         public static int HandlerCount

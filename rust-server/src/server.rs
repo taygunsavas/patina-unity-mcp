@@ -7,7 +7,12 @@ use rmcp::{
 };
 
 use crate::bridge::BridgeClient;
-use crate::tools::{CreateGameObjectArgs, GetHierarchyArgs, LogToConsoleArgs};
+use crate::tools::{
+    AddComponentArgs, CreateGameObjectArgs, CreatePrefabArgs, DeleteGameObjectArgs,
+    DuplicateGameObjectArgs, FindAssetsByNameArgs, FindAssetsByTypeArgs, GetHierarchyArgs,
+    GetSceneInfoArgs, InstantiatePrefabArgs, LogToConsoleArgs, RemoveComponentArgs,
+    ReparentGameObjectArgs, SetPropertyArgs,
+};
 
 #[derive(Clone)]
 pub struct UnityMcpServer {
@@ -56,6 +61,8 @@ impl UnityMcpServer {
 
 #[tool_router]
 impl UnityMcpServer {
+    // === Phase 1 tools (existing) ===
+
     #[tool(
         name = "log_to_console",
         description = "Log a message to the Unity Editor console"
@@ -93,6 +100,151 @@ impl UnityMcpServer {
         let params = serde_json::to_value(&args)
             .map_err(|e| McpError::internal_error(e.to_string(), None))?;
         self.call_bridge("create_game_object", params).await
+    }
+
+    // === Phase 2 tools (new) ===
+
+    #[tool(
+        name = "get_scene_info",
+        description = "Get information about the active Unity scene including name, path, root object count, and dirty state"
+    )]
+    async fn get_scene_info(
+        &self,
+        Parameters(args): Parameters<GetSceneInfoArgs>,
+    ) -> Result<CallToolResult, McpError> {
+        let params = serde_json::to_value(&args)
+            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
+        self.call_bridge("get_scene_info", params).await
+    }
+
+    #[tool(
+        name = "add_component",
+        description = "Add a component to a GameObject by name"
+    )]
+    async fn add_component(
+        &self,
+        Parameters(args): Parameters<AddComponentArgs>,
+    ) -> Result<CallToolResult, McpError> {
+        let params = serde_json::to_value(&args)
+            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
+        self.call_bridge("add_component", params).await
+    }
+
+    #[tool(
+        name = "set_property",
+        description = "Set a property value on a component attached to a GameObject"
+    )]
+    async fn set_property(
+        &self,
+        Parameters(args): Parameters<SetPropertyArgs>,
+    ) -> Result<CallToolResult, McpError> {
+        let params = serde_json::to_value(&args)
+            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
+        self.call_bridge("set_property", params).await
+    }
+
+    #[tool(
+        name = "remove_component",
+        description = "Remove a component from a GameObject by type name"
+    )]
+    async fn remove_component(
+        &self,
+        Parameters(args): Parameters<RemoveComponentArgs>,
+    ) -> Result<CallToolResult, McpError> {
+        let params = serde_json::to_value(&args)
+            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
+        self.call_bridge("remove_component", params).await
+    }
+
+    #[tool(
+        name = "reparent_game_object",
+        description = "Move a GameObject to a new parent in the hierarchy"
+    )]
+    async fn reparent_game_object(
+        &self,
+        Parameters(args): Parameters<ReparentGameObjectArgs>,
+    ) -> Result<CallToolResult, McpError> {
+        let params = serde_json::to_value(&args)
+            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
+        self.call_bridge("reparent_game_object", params).await
+    }
+
+    #[tool(
+        name = "delete_game_object",
+        description = "Delete a GameObject from the active scene"
+    )]
+    async fn delete_game_object(
+        &self,
+        Parameters(args): Parameters<DeleteGameObjectArgs>,
+    ) -> Result<CallToolResult, McpError> {
+        let params = serde_json::to_value(&args)
+            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
+        self.call_bridge("delete_game_object", params).await
+    }
+
+    #[tool(
+        name = "duplicate_game_object",
+        description = "Duplicate an existing GameObject in the scene"
+    )]
+    async fn duplicate_game_object(
+        &self,
+        Parameters(args): Parameters<DuplicateGameObjectArgs>,
+    ) -> Result<CallToolResult, McpError> {
+        let params = serde_json::to_value(&args)
+            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
+        self.call_bridge("duplicate_game_object", params).await
+    }
+
+    #[tool(
+        name = "create_prefab",
+        description = "Save a scene GameObject as a prefab asset"
+    )]
+    async fn create_prefab(
+        &self,
+        Parameters(args): Parameters<CreatePrefabArgs>,
+    ) -> Result<CallToolResult, McpError> {
+        let params = serde_json::to_value(&args)
+            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
+        self.call_bridge("create_prefab", params).await
+    }
+
+    #[tool(
+        name = "instantiate_prefab",
+        description = "Instantiate a prefab asset into the active scene"
+    )]
+    async fn instantiate_prefab(
+        &self,
+        Parameters(args): Parameters<InstantiatePrefabArgs>,
+    ) -> Result<CallToolResult, McpError> {
+        let params = serde_json::to_value(&args)
+            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
+        self.call_bridge("instantiate_prefab", params).await
+    }
+
+    #[tool(
+        name = "find_assets_by_type",
+        description = "Search for assets by type filter (e.g. t:Material, t:Prefab)"
+    )]
+    async fn find_assets_by_type(
+        &self,
+        Parameters(args): Parameters<FindAssetsByTypeArgs>,
+    ) -> Result<CallToolResult, McpError> {
+        let params = serde_json::to_value(&args)
+            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
+        self.call_bridge("find_assets_by_type", params).await
+    }
+
+    #[tool(
+        name = "find_assets_by_name",
+        description = "Search for assets by name pattern"
+    )]
+    async fn find_assets_by_name(
+        &self,
+        Parameters(args): Parameters<FindAssetsByNameArgs>,
+    ) -> Result<CallToolResult, McpError> {
+        let params = serde_json::to_value(&args)
+            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
+        self.call_bridge("find_assets_by_name", params).await
     }
 }
 
