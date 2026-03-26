@@ -49,7 +49,8 @@ Open your MCP host and try:
 
 | Host | Setup |
 |------|-------|
-| Claude Code (Anthropic CLI) | Automatic |
+| Claude Code (Anthropic CLI) | Automatic (`~/.claude.json`) |
+| Claude Desktop | Automatic |
 | Cursor | Automatic |
 | Visual Studio Code | Automatic |
 | GitHub Copilot (VS Code) | Linked via VS Code config |

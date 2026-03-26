@@ -15,6 +15,7 @@ namespace Patina.Editor
         private Label _statusLabel;
         private Label _portDisplayLabel;
         private Label _clientsLabel;
+        private Label _runtimeSourceLabel;
         private Label _binaryPathLabel;
         private Label _configPathLabel;
         private HelpBox _serverHelpBox;
@@ -109,7 +110,7 @@ namespace Patina.Editor
             box.Add(_setupHelpBox);
 
             _localRuntimeToggle = new Toggle("Use Local Runtime (Contributor)");
-            _localRuntimeToggle.value = ProcessManager.IsLocalRuntimeOverrideEnabled;
+            _localRuntimeToggle.value = ProcessManager.IsLocalRuntimeOverrideRequested;
             _localRuntimeToggle.RegisterValueChangedCallback(OnLocalRuntimeChanged);
             _localRuntimeToggle.style.marginBottom = 6;
             box.Add(_localRuntimeToggle);
@@ -159,7 +160,8 @@ namespace Patina.Editor
         {
             GroupBox box = new GroupBox { text = "Diagnostics" };
             box.style.marginBottom = 8;
-            box.Add(CreateInfoRow("Server Binary", out _binaryPathLabel));
+            box.Add(CreateInfoRow("Runtime Source", out _runtimeSourceLabel));
+            box.Add(CreateInfoRow("Resolved Binary", out _binaryPathLabel));
             box.Add(CreateInfoRow("Package Id", out _configPathLabel));
 
             _registrationHelpBox = new HelpBox(string.Empty, HelpBoxMessageType.Info);
@@ -239,6 +241,8 @@ namespace Patina.Editor
             bool running = McpBridgeServer.IsRunning;
             string binaryPath = ProcessManager.FindServerBinary();
             bool hasBinary = !string.IsNullOrEmpty(binaryPath);
+            string runtimeStatusMessage = ProcessManager.GetRuntimeStatusMessage();
+            ProcessManager.RuntimeSourceKind runtimeSourceKind = ProcessManager.GetRuntimeSourceKind();
 
             _summaryLabel.text = _lastSetupResults == null
                 ? "Ready to configure local host integrations automatically."
@@ -251,12 +255,13 @@ namespace Patina.Editor
 
             _portDisplayLabel.text = McpBridgeServer.Port.ToString();
             _clientsLabel.text = McpBridgeServer.ConnectedClients.ToString();
+            _runtimeSourceLabel.text = ProcessManager.GetRuntimeSourceLabel();
             _binaryPathLabel.text = hasBinary
                 ? binaryPath
-                : "Missing. Expected packaged binary at " + ProcessManager.GetExpectedBinaryLocation() + " or a local source-layout rust-server build.";
+                : runtimeStatusMessage;
             _configPathLabel.text = ProcessManager.GetPackageId();
 
-            _registrationHelpBox.text = "Per-host setup state is shown in Host Results. One-Click Setup updates supported hosts and replaces stale Patina entries when needed.";
+            _registrationHelpBox.text = "Per-host setup state is shown in Host Results. " + runtimeStatusMessage + " One-Click Setup updates supported hosts and replaces stale Patina entries when needed.";
             _registrationHelpBox.messageType = HelpBoxMessageType.Info;
 
             bool contributorModeAvailable = ProcessManager.IsContributorModeAvailable();
@@ -270,15 +275,15 @@ namespace Patina.Editor
             _startButton.SetEnabled(!running);
             _stopButton.SetEnabled(running);
             _localRuntimeToggle.style.display = contributorModeAvailable ? DisplayStyle.Flex : DisplayStyle.None;
-            _localRuntimeToggle.SetValueWithoutNotify(ProcessManager.IsLocalRuntimeOverrideEnabled);
+            _localRuntimeToggle.SetValueWithoutNotify(ProcessManager.IsLocalRuntimeOverrideRequested);
             _developmentHelpBox.text = contributorModeAvailable
-                ? ProcessManager.IsLocalRuntimeOverrideEnabled
-                    ? "Contributor runtime override is enabled. Host configs will point to dist/dev-runtime/current when that local runtime is available."
-                    : "Packaged runtime is active. Enable the contributor override only when this package is loaded from a local source checkout or this project has a published dev runtime."
+                ? runtimeStatusMessage
                 : "Packaged runtime is active. Local runtime overrides are only available from a local source checkout or a project with a published dev runtime.";
-            _developmentHelpBox.messageType = ProcessManager.IsLocalRuntimeOverrideEnabled
+            _developmentHelpBox.messageType = runtimeSourceKind == ProcessManager.RuntimeSourceKind.Contributor
                 ? HelpBoxMessageType.Warning
-                : HelpBoxMessageType.Info;
+                : runtimeSourceKind == ProcessManager.RuntimeSourceKind.Missing
+                    ? HelpBoxMessageType.Error
+                    : HelpBoxMessageType.Info;
 
             if (running)
             {
@@ -302,7 +307,7 @@ namespace Patina.Editor
             {
                 _setupHelpBox.text = hasBinary
                     ? "Automatic setup updates supported local MCP hosts, removes stale Patina entries, and keeps linked integrations aligned through shared host config files."
-                    : "No binary was found yet. Build rust-server locally in the source repo or use the staged/release package that includes Plugins/<platform>/patina-server.";
+                    : runtimeStatusMessage;
                 _setupHelpBox.messageType = hasBinary ? HelpBoxMessageType.Info : HelpBoxMessageType.Error;
             }
         }

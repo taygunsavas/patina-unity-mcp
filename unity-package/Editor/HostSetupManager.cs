@@ -31,10 +31,27 @@ namespace Patina.Editor
                 };
             }
 
+            if (ProcessManager.TryGetRuntimeSetupBlocker(out string runtimeBlocker))
+            {
+                return new[]
+                {
+                    new HostSetupResult
+                    {
+                        Id = "runtime-validation",
+                        DisplayName = "Runtime Validation",
+                        Mode = HostSetupMode.Automatic,
+                        Status = HostSetupStatus.Failed,
+                        Summary = runtimeBlocker,
+                        RequiresRestart = false
+                    }
+                };
+            }
+
             HostEnvironment environment = BuildEnvironment();
             List<HostSetupResult> results = new List<HostSetupResult>();
 
             results.Add(SetupClaudeDesktop(binaryPath));
+            results.Add(SetupClaudeCode(binaryPath, environment));
             results.Add(SetupCodex(binaryPath, environment));
 
             HostSetupResult cursorResult = SetupJsonHost(
@@ -81,6 +98,7 @@ namespace Patina.Editor
             List<HostSetupResult> results = new List<HostSetupResult>
             {
                 RemoveClaudeDesktop(),
+                RemoveClaudeCode(environment),
                 RemoveCodex(environment),
                 RemoveJsonHost("cursor", "Cursor", environment.CursorConfigPath, "servers", environment.CursorDetected),
                 RemoveJsonHost("vscode", "Visual Studio Code", environment.VisualStudioCodeConfigPath, "servers", environment.VisualStudioCodeDetected),
@@ -174,6 +192,27 @@ namespace Patina.Editor
                 ExportSnippet = string.Empty,
                 RequiresRestart = status == HostSetupStatus.Removed
             };
+        }
+
+        private static HostSetupResult SetupClaudeCode(string binaryPath, HostEnvironment environment)
+        {
+            return SetupJsonHost(
+                "claude-code",
+                "Claude Code",
+                environment.ClaudeCodeConfigPath,
+                "mcpServers",
+                binaryPath,
+                environment.ClaudeCodeDetected);
+        }
+
+        private static HostSetupResult RemoveClaudeCode(HostEnvironment environment)
+        {
+            return RemoveJsonHost(
+                "claude-code",
+                "Claude Code",
+                environment.ClaudeCodeConfigPath,
+                "mcpServers",
+                environment.ClaudeCodeDetected);
         }
 
         private static HostSetupResult SetupCodex(string binaryPath, HostEnvironment environment)
@@ -634,6 +673,9 @@ namespace Patina.Editor
 
             return new HostEnvironment
             {
+                ClaudeCodeConfigPath = Path.Combine(userProfile, ".claude.json"),
+                ClaudeCodeDetected = Directory.Exists(Path.Combine(userProfile, ".claude"))
+                                     || FindPathHints("claude.exe", "claude.cmd", "claude").Count > 0,
                 CodexConfigPath = Path.Combine(userProfile, ".codex", "config.toml"),
                 CursorConfigPath = Path.Combine(userProfile, ".cursor", "mcp.json"),
                 CursorDetected = AnyFileExists(
@@ -685,6 +727,8 @@ namespace Patina.Editor
 
         private sealed class HostEnvironment
         {
+            public string ClaudeCodeConfigPath { get; set; }
+            public bool ClaudeCodeDetected { get; set; }
             public string CodexConfigPath { get; set; }
             public bool CodexDetected { get; set; }
             public string CursorConfigPath { get; set; }
@@ -698,5 +742,4 @@ namespace Patina.Editor
         }
     }
 }
-
 

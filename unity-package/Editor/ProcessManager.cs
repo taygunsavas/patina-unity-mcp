@@ -13,6 +13,13 @@ namespace Patina.Editor
         private const string LocalRuntimeOverridePrefsKey = "Patina.LocalRuntimeOverride";
         private const string LegacyDevelopmentModePrefsKey = "Patina.DevelopmentMode";
 
+        public enum RuntimeSourceKind
+        {
+            Packaged,
+            Contributor,
+            Missing
+        }
+
         public static bool IsLocalRuntimeOverrideRequested
         {
             get
@@ -20,14 +27,21 @@ namespace Patina.Editor
                 if (UnityEditor.EditorPrefs.HasKey(LocalRuntimeOverridePrefsKey))
                     return UnityEditor.EditorPrefs.GetBool(LocalRuntimeOverridePrefsKey, false);
 
-                return UnityEditor.EditorPrefs.GetBool(LegacyDevelopmentModePrefsKey, false);
+                bool legacyValue = UnityEditor.EditorPrefs.GetBool(LegacyDevelopmentModePrefsKey, false);
+                UnityEditor.EditorPrefs.SetBool(LocalRuntimeOverridePrefsKey, legacyValue);
+                UnityEditor.EditorPrefs.DeleteKey(LegacyDevelopmentModePrefsKey);
+                return legacyValue;
             }
-            set { UnityEditor.EditorPrefs.SetBool(LocalRuntimeOverridePrefsKey, value); }
+            set
+            {
+                UnityEditor.EditorPrefs.SetBool(LocalRuntimeOverridePrefsKey, value);
+                UnityEditor.EditorPrefs.DeleteKey(LegacyDevelopmentModePrefsKey);
+            }
         }
 
         public static bool IsLocalRuntimeOverrideEnabled
         {
-            get { return IsContributorModeAvailable() && IsLocalRuntimeOverrideRequested; }
+            get { return IsLocalRuntimeOverrideRequested; }
         }
 
         public static string GetPackageId()
@@ -37,13 +51,7 @@ namespace Patina.Editor
 
         public static string FindServerBinary()
         {
-            foreach (string candidate in EnumerateBinaryCandidates())
-            {
-                if (!string.IsNullOrWhiteSpace(candidate) && File.Exists(candidate))
-                    return Path.GetFullPath(candidate);
-            }
-
-            return string.Empty;
+            return TryGetActiveRuntimePath(out string runtimePath) ? runtimePath : string.Empty;
         }
 
         public static string GetClaudeDesktopConfigPath()
@@ -67,23 +75,68 @@ namespace Patina.Editor
             return Path.Combine(packageRoot, "Plugins", GetPlatformDirectory(), binaryName);
         }
 
+        public static RuntimeSourceKind GetRuntimeSourceKind()
+        {
+            if (IsLocalRuntimeOverrideEnabled)
+                return TryGetContributorRuntimePath(out _) ? RuntimeSourceKind.Contributor : RuntimeSourceKind.Missing;
+
+            return TryGetPackagedRuntimePath(out _) ? RuntimeSourceKind.Packaged : RuntimeSourceKind.Missing;
+        }
+
+        public static string GetRuntimeSourceLabel()
+        {
+            switch (GetRuntimeSourceKind())
+            {
+                case RuntimeSourceKind.Packaged:
+                    return "Packaged runtime";
+                case RuntimeSourceKind.Contributor:
+                    return "Contributor runtime";
+                default:
+                    return IsLocalRuntimeOverrideRequested ? "Missing contributor runtime" : "Missing packaged runtime";
+            }
+        }
+
+        public static string GetRuntimeStatusMessage()
+        {
+            if (IsLocalRuntimeOverrideEnabled)
+            {
+                if (TryGetContributorRuntimePath(out string contributorPath))
+                {
+                    if (TryGetContributorRuntimeStaleReason(out string staleReason))
+                        return staleReason + " Active path: " + contributorPath;
+
+                    return "Contributor runtime active: " + contributorPath;
+                }
+
+                return "Contributor runtime override is enabled, but no explicit runtime was found. Expected dist/dev-runtime/current/<platform>/patina-server.";
+            }
+
+            if (TryGetPackagedRuntimePath(out string packagedPath))
+                return "Packaged runtime active: " + packagedPath;
+
+            return "Packaged runtime is missing. Expected " + GetExpectedBinaryLocation() + ".";
+        }
+
+        public static bool TryGetActiveRuntimePath(out string runtimePath)
+        {
+            if (IsLocalRuntimeOverrideEnabled)
+                return TryGetContributorRuntimePath(out runtimePath);
+
+            return TryGetPackagedRuntimePath(out runtimePath);
+        }
+
+        public static bool TryGetRuntimeSetupBlocker(out string blockerMessage)
+        {
+            if (IsLocalRuntimeOverrideEnabled && TryGetContributorRuntimeStaleReason(out blockerMessage))
+                return true;
+
+            blockerMessage = string.Empty;
+            return false;
+        }
+
         public static bool IsContributorModeAvailable()
         {
-            string packageRoot = GetPackageRoot();
-            string binaryName = ServerBinaryName + GetBinaryExtension();
-            string platformDir = GetPlatformDirectory();
-            string projectRoot = Path.GetFullPath(Path.Combine(Application.dataPath, ".."));
-            string repoRoot = TryGetSourceRepoRoot(packageRoot);
-
-            if (!string.IsNullOrEmpty(repoRoot))
-                return true;
-
-            string projectDevRuntime = Path.Combine(projectRoot, "dist", "dev-runtime", "current", platformDir, binaryName);
-            if (File.Exists(projectDevRuntime))
-                return true;
-
-            string localRustServer = Path.Combine(projectRoot, "rust-server");
-            return Directory.Exists(localRustServer);
+            return HasContributorSourceLayout() || HasExplicitContributorRuntime();
         }
 
         private static string GetPackageRoot()
@@ -91,54 +144,99 @@ namespace Patina.Editor
             return Path.GetFullPath(Path.Combine(Application.dataPath, "..", "Packages", PackageName));
         }
 
-        private static string NormalizePath(string path)
+        private static bool TryGetPackagedRuntimePath(out string runtimePath)
         {
-            if (string.IsNullOrWhiteSpace(path))
-                return string.Empty;
-
-            string normalized = path.Replace('/', Path.DirectorySeparatorChar).Replace('\\', Path.DirectorySeparatorChar);
-            return Path.GetFullPath(Environment.ExpandEnvironmentVariables(normalized));
+            runtimePath = GetExpectedBinaryLocation();
+            return File.Exists(runtimePath);
         }
 
-        private static IEnumerable<string> EnumerateBinaryCandidates()
+        private static bool TryGetContributorRuntimePath(out string runtimePath)
         {
-            string packageRoot = GetPackageRoot();
-            string pluginsDir = Path.Combine(packageRoot, "Plugins");
             string binaryName = ServerBinaryName + GetBinaryExtension();
             string platformDir = GetPlatformDirectory();
             string projectRoot = Path.GetFullPath(Path.Combine(Application.dataPath, ".."));
-            string repoRoot = TryGetSourceRepoRoot(packageRoot);
+            string repoRoot = TryGetSourceRepoRoot(GetPackageRoot());
 
-            if (IsLocalRuntimeOverrideEnabled)
+            string projectRuntime = Path.Combine(projectRoot, "dist", "dev-runtime", "current", platformDir, binaryName);
+            if (File.Exists(projectRuntime))
             {
-                foreach (string candidate in EnumerateDevelopmentModeCandidates(projectRoot, repoRoot, binaryName, platformDir))
-                    yield return candidate;
+                runtimePath = Path.GetFullPath(projectRuntime);
+                return true;
             }
-
-            yield return Path.Combine(pluginsDir, platformDir, binaryName);
-            yield return Path.Combine(projectRoot, "rust-server", "target", "release", binaryName);
-            yield return Path.Combine(projectRoot, "rust-server", "target", "debug", binaryName);
 
             if (!string.IsNullOrEmpty(repoRoot))
             {
-                yield return Path.Combine(repoRoot, "rust-server", "target", "release", binaryName);
-                yield return Path.Combine(repoRoot, "rust-server", "target", "debug", binaryName);
-                yield return Path.Combine(repoRoot, "dist", "local-upm", PackageName, "Plugins", platformDir, binaryName);
+                string repoRuntime = Path.Combine(repoRoot, "dist", "dev-runtime", "current", platformDir, binaryName);
+                if (File.Exists(repoRuntime))
+                {
+                    runtimePath = Path.GetFullPath(repoRuntime);
+                    return true;
+                }
             }
 
-            foreach (string candidate in EnumeratePluginCandidates(pluginsDir, binaryName))
-                yield return candidate;
-
-            foreach (string candidate in EnumeratePathCandidates(binaryName))
-                yield return candidate;
+            runtimePath = string.Empty;
+            return false;
         }
 
-        private static IEnumerable<string> EnumerateDevelopmentModeCandidates(string projectRoot, string repoRoot, string binaryName, string platformDir)
+        private static bool TryGetContributorRuntimeStaleReason(out string staleReason)
         {
-            yield return Path.Combine(projectRoot, "dist", "dev-runtime", "current", platformDir, binaryName);
+            staleReason = string.Empty;
 
-            if (!string.IsNullOrEmpty(repoRoot))
-                yield return Path.Combine(repoRoot, "dist", "dev-runtime", "current", platformDir, binaryName);
+            if (!TryGetContributorRuntimePath(out string runtimePath))
+                return false;
+
+            string repoRoot = TryGetSourceRepoRoot(GetPackageRoot());
+            if (string.IsNullOrEmpty(repoRoot))
+                return false;
+
+            string rustRoot = Path.Combine(repoRoot, "rust-server");
+            if (!Directory.Exists(rustRoot))
+                return false;
+
+            DateTime runtimeWriteTimeUtc = File.GetLastWriteTimeUtc(runtimePath);
+            DateTime latestSourceWriteTimeUtc = GetLatestRustSourceWriteTimeUtc(rustRoot);
+            if (latestSourceWriteTimeUtc <= runtimeWriteTimeUtc)
+                return false;
+
+            staleReason = "Contributor runtime is older than the Rust source tree. Run `cargo build --release`, then `pwsh -File scripts/publish-dev-runtime.ps1`, and rerun One-Click Setup.";
+            return true;
+        }
+
+        private static DateTime GetLatestRustSourceWriteTimeUtc(string rustRoot)
+        {
+            IEnumerable<string> candidateFiles = Directory.EnumerateFiles(Path.Combine(rustRoot, "src"), "*.rs", SearchOption.AllDirectories)
+                .Concat(new[]
+                {
+                    Path.Combine(rustRoot, "Cargo.toml")
+                })
+                .Where(File.Exists);
+
+            DateTime latestWriteTimeUtc = DateTime.MinValue;
+            foreach (string candidateFile in candidateFiles)
+            {
+                DateTime writeTimeUtc = File.GetLastWriteTimeUtc(candidateFile);
+                if (writeTimeUtc > latestWriteTimeUtc)
+                    latestWriteTimeUtc = writeTimeUtc;
+            }
+
+            return latestWriteTimeUtc;
+        }
+
+        private static bool HasContributorSourceLayout()
+        {
+            string packageRoot = GetPackageRoot();
+            string projectRoot = Path.GetFullPath(Path.Combine(Application.dataPath, ".."));
+
+            if (!string.IsNullOrEmpty(TryGetSourceRepoRoot(packageRoot)))
+                return true;
+
+            string localRustServer = Path.Combine(projectRoot, "rust-server");
+            return Directory.Exists(localRustServer);
+        }
+
+        private static bool HasExplicitContributorRuntime()
+        {
+            return TryGetContributorRuntimePath(out _);
         }
 
         private static string TryGetSourceRepoRoot(string packageRoot)
@@ -159,24 +257,6 @@ namespace Patina.Editor
             }
 
             return string.Empty;
-        }
-
-        private static string[] EnumeratePluginCandidates(string pluginsDir, string binaryName)
-        {
-            if (!Directory.Exists(pluginsDir))
-                return Array.Empty<string>();
-
-            return Directory.GetDirectories(pluginsDir)
-                .Select(dir => Path.Combine(dir, binaryName))
-                .ToArray();
-        }
-
-        private static string[] EnumeratePathCandidates(string binaryName)
-        {
-            string pathEnv = Environment.GetEnvironmentVariable("PATH") ?? string.Empty;
-            return pathEnv.Split(Path.PathSeparator, StringSplitOptions.RemoveEmptyEntries)
-                .Select(dir => Path.Combine(dir.Trim(), binaryName))
-                .ToArray();
         }
 
         private static string GetPlatformDirectory()
@@ -202,5 +282,3 @@ namespace Patina.Editor
         }
     }
 }
-
-
