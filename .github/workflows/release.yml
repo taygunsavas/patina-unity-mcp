@@ -162,25 +162,40 @@ jobs:
     needs:
       - verify
       - package-upm
-    if: ${{ inputs.publish_npm && secrets.NPM_TOKEN != '' }}
+    if: ${{ inputs.publish_npm }}
     runs-on: ubuntu-latest
+    env:
+      NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+      NPM_REGISTRY_URL: ${{ vars.NPM_REGISTRY_URL }}
     steps:
+      - name: Check npm publish prerequisites
+        id: preflight
+        shell: pwsh
+        run: |
+          if ([string]::IsNullOrWhiteSpace($env:NPM_TOKEN)) {
+            Write-Host "::notice title=npm publish skipped::NPM_TOKEN is not configured."
+            "should_publish=false" >> $env:GITHUB_OUTPUT
+            exit 0
+          }
+
+          "should_publish=true" >> $env:GITHUB_OUTPUT
+
       - name: Download release bundles
+        if: ${{ steps.preflight.outputs.should_publish == 'true' }}
         uses: actions/download-artifact@v8
         with:
           name: patina-release-bundles
           path: dist
 
       - name: Setup Node.js
+        if: ${{ steps.preflight.outputs.should_publish == 'true' }}
         uses: actions/setup-node@v6
         with:
           node-version: 20
 
       - name: Publish package to npm-compatible registry
+        if: ${{ steps.preflight.outputs.should_publish == 'true' }}
         shell: pwsh
-        env:
-          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
-          NPM_REGISTRY_URL: ${{ vars.NPM_REGISTRY_URL }}
         run: |
           $registryUrl = $env:NPM_REGISTRY_URL
           if ([string]::IsNullOrWhiteSpace($registryUrl)) {
@@ -214,25 +229,46 @@ jobs:
     needs:
       - verify
       - package-upm
-    if: ${{ inputs.publish_openupm && secrets.OPENUPM_TOKEN != '' && vars.OPENUPM_REGISTRY_URL != '' }}
+    if: ${{ inputs.publish_openupm }}
     runs-on: ubuntu-latest
+    env:
+      OPENUPM_TOKEN: ${{ secrets.OPENUPM_TOKEN }}
+      OPENUPM_REGISTRY_URL: ${{ vars.OPENUPM_REGISTRY_URL }}
     steps:
+      - name: Check OpenUPM publish prerequisites
+        id: preflight
+        shell: pwsh
+        run: |
+          if ([string]::IsNullOrWhiteSpace($env:OPENUPM_TOKEN)) {
+            Write-Host "::notice title=OpenUPM publish skipped::OPENUPM_TOKEN is not configured."
+            "should_publish=false" >> $env:GITHUB_OUTPUT
+            exit 0
+          }
+
+          if ([string]::IsNullOrWhiteSpace($env:OPENUPM_REGISTRY_URL)) {
+            Write-Host "::notice title=OpenUPM publish skipped::OPENUPM_REGISTRY_URL is not configured."
+            "should_publish=false" >> $env:GITHUB_OUTPUT
+            exit 0
+          }
+
+          "should_publish=true" >> $env:GITHUB_OUTPUT
+
       - name: Download release bundles
+        if: ${{ steps.preflight.outputs.should_publish == 'true' }}
         uses: actions/download-artifact@v8
         with:
           name: patina-release-bundles
           path: dist
 
       - name: Setup Node.js
+        if: ${{ steps.preflight.outputs.should_publish == 'true' }}
         uses: actions/setup-node@v6
         with:
           node-version: 20
 
       - name: Publish package to OpenUPM-compatible registry
+        if: ${{ steps.preflight.outputs.should_publish == 'true' }}
         shell: pwsh
-        env:
-          OPENUPM_TOKEN: ${{ secrets.OPENUPM_TOKEN }}
-          OPENUPM_REGISTRY_URL: ${{ vars.OPENUPM_REGISTRY_URL }}
         run: |
           $tarball = Get-ChildItem dist -Filter *.tgz | Select-Object -First 1 -ExpandProperty FullName
           if (-not $tarball) {
