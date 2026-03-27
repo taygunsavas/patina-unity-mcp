@@ -6,41 +6,24 @@ Public, GitHub-facing roadmap updates should land here through normal pull reque
 
 ## Current State
 
-- Phase 1 is the current shipped baseline: console logging, hierarchy inspection, and GameObject creation.
+- Phase 1 and Phase 2 are shipped: 14 MCP tools covering console, hierarchy, object creation, scene management, component editing, prefab operations, and asset search.
 - Patina is maintained as a source-first repository with artifact-first distribution.
 - Registry-backed Unity package delivery is the primary install path.
 - GitHub Releases remain a secondary release surface for artifacts and notes.
 - The local runtime override is a contributor workflow, not an end-user installation mode.
 
-## Near-Term Roadmap
+## Active Roadmap
 
-### Phase 1.1 - Artifact Release Hardening
+### Phase 3 - Distribution and Release Operations (current)
 
-- Run the release workflow end to end with production-like registry credentials.
-- Verify that the published Unity package installs cleanly from scoped registries into a fresh Unity project.
-- Confirm packaged platform binaries import correctly across supported platforms.
-- Validate whether binary-specific `.meta` files are still needed after real registry-backed install cycles.
-
-### Phase 1.2 - Contributor UX Hardening
-
-- Validate Unity window copy and visibility rules for the contributor runtime override.
-- Test source-based iteration with a local package checkout and a published dev runtime.
-- Clarify the preferred contributor loop for package-only edits versus package-plus-Rust changes.
-
-### Phase 1.3 - Distribution Operations
-
+- Execute the first end-to-end registry release with production credentials and validate a clean install from scoped registries into a fresh Unity project.
 - Publish stable registry endpoints and installation examples.
-- Add a maintainer release checklist covering required secrets, variables, and release steps.
-- Prepare Asset Store submission notes without making them the primary release path.
+- Validate signed-package behavior against Unity `6000.3.5f2+` and record any import quirks.
+- Prepare Asset Store submission notes as a manual secondary channel without blocking registry delivery.
 
 ## Longer-Term Roadmap
 
-### Phase 2 - Product Coverage
-
-- Expand tool coverage into scene management, asset operations, and component editing.
-- Preserve the install contract: the packaged runtime ships inside the published Unity package artifact.
-
-### Phase 3 - Product Hardening
+### Phase 4 - Product Hardening
 
 - Add repository-owned tests for Rust bridge behavior.
 - Increase Unity-side validation where practical.

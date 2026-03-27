@@ -22,7 +22,9 @@ The host launches the Rust binary over stdio MCP. The Rust server forwards tool 
 ## Quick Start
 
 ### 1. Install the Unity package
-In Unity 6, add the Patina scoped registry for your chosen release channel, then install `com.taygunsavas.patina-unity-mcp` from Package Manager.
+In Unity 6, add the Patina scoped registry in Package Manager settings, then install `com.taygunsavas.patina-unity-mcp`.
+
+> **Registry endpoint:** The stable scoped registry URL will be published here after the first production release. Until then, install from the `.tgz` tarball attached to the latest [GitHub Release](https://github.com/taygunsavas/patina-unity-mcp/releases).
 
 Patina is distributed as a complete Unity package artifact with the editor code, native Rust runtime binaries under `Plugins/<platform>/`, and the Unity metadata needed for import. End users do not need the Rust toolchain or a Git checkout of this repository.
 

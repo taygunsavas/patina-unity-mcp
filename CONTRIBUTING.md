@@ -108,7 +108,17 @@ cargo test
 - Keep `rust-server/Cargo.toml` and `unity-package/package.json` on the same version.
 - The release workflow assembles the full Unity package artifact and publishes it to registry channels.
 - GitHub Releases are secondary artifacts and release notes, not the primary install surface.
-- Unity `6000.3.5f2+` is the recommended validation baseline because Package Manager signed-package behavior was stabilized there.
+- Unity `6000.3.5f2+` is the validated minimum for release verification; Package Manager signed-package behavior was stabilized at that patch level.
+- For the full step-by-step release process, required secrets, and post-release validation checklist, see [RELEASING.md](RELEASING.md).
+
+### Asset Store
+
+The Unity Asset Store is a planned manual secondary distribution channel. It does not share automation with the registry release path and is not a blocker for registry delivery.
+
+When preparing an Asset Store submission:
+- Stage the package locally with `pwsh -File scripts/stage-local-upm.ps1`, then export from `dist/local-upm/com.taygunsavas.patina-unity-mcp/` as a `.unitypackage` via the Unity Editor asset export flow.
+- The submission requires a display name, description, category, screenshots, and a support URL. Use the README product copy as a starting point.
+- Asset Store review timelines are independent of registry releases; plan submissions separately.
 
 ## Notes
 
