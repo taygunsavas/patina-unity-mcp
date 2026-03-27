@@ -24,3 +24,5 @@ Thumbs.db
 AGENTS.md
 /docs
 CLAUDE.md
+/.claude-flow
+.mcp.json

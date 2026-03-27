@@ -44,6 +44,17 @@ Open your MCP host and try:
 | `log_to_console` | Send messages to the Unity Console |
 | `get_hierarchy` | Retrieve the full scene GameObject tree |
 | `create_game_object` | Spawn GameObjects or built-in primitives |
+| `get_scene_info` | Get active scene metadata (name, path, build index, root count, dirty state; optionally all loaded scenes) |
+| `add_component` | Add a component to a GameObject by type name (short name or fully qualified) |
+| `set_property` | Set a component property value as JSON |
+| `remove_component` | Remove a component from a GameObject by type name |
+| `reparent_game_object` | Move a GameObject to a new parent (with optional world-position preserve) |
+| `delete_game_object` | Delete a GameObject from the scene |
+| `duplicate_game_object` | Duplicate an existing GameObject |
+| `create_prefab` | Save a scene GameObject as a prefab asset |
+| `instantiate_prefab` | Instantiate a prefab into the scene with optional position and name |
+| `find_assets_by_type` | Search project assets by type filter (e.g. `t:Material`, `t:Prefab`) |
+| `find_assets_by_name` | Search project assets by name pattern |
 
 ## Supported Hosts
 
@@ -64,9 +75,9 @@ The setup window also detects stale entries, missing hosts, and provides a clean
 
 | Phase | Focus |
 |-------|-------|
-| **Phase 1** (current) | Core tools: console, hierarchy, object creation |
-| **Phase 2** | Expanded coverage: scene management, asset operations, component editing |
-| **Phase 3** | Distribution and reach: more hosts, registry publishing |
+| **Phase 1** ✓ | Core tools: console, hierarchy, object creation |
+| **Phase 2** ✓ | Expanded coverage: scene management, asset operations, component editing |
+| **Phase 3** (current) | Distribution and reach: registry publishing, installation docs, release pipeline |
 
 For the public contributor-facing roadmap, see [ROADMAP.md](ROADMAP.md).
 
@@ -121,7 +132,7 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for the full contributor workflow.
 ## Requirements
 
 - Unity 6 (6000.3 LTS+)
-- Unity `6000.3.5f2+` is recommended for reliable signed-package behavior in Package Manager
+- Unity `6000.3.5f2+` is the validated minimum for reliable signed-package behavior in Package Manager; earlier 6000.3 patch releases may show signature warnings on first import from a scoped registry
 - A supported MCP host
 - Rust 1.75+ (contributors only)
 
