@@ -39,7 +39,7 @@ impl UnityMcpServer {
                     let text = response
                         .result
                         .map(|v| {
-                            serde_json::to_string_pretty(&v).unwrap_or_else(|e| {
+                            serde_json::to_string(&v).unwrap_or_else(|e| {
                                 tracing::warn!("Failed to serialize bridge response: {}", e);
                                 format!("{:?}", v)
                             })
@@ -65,7 +65,7 @@ impl UnityMcpServer {
 
     #[tool(
         name = "log_to_console",
-        description = "Log a message to the Unity Editor console"
+        description = "Emit a message to the Unity Editor Console. Use level=warning or level=error to colour the entry; defaults to info. Returns OK."
     )]
     async fn log_to_console(
         &self,
@@ -78,7 +78,7 @@ impl UnityMcpServer {
 
     #[tool(
         name = "get_hierarchy",
-        description = "Get the Unity scene hierarchy tree"
+        description = "Return the active scene's GameObject tree as nested JSON. Use max_depth (e.g. 2) on large scenes to limit output; omit for the full tree. Use name_filter to narrow to matching subtrees."
     )]
     async fn get_hierarchy(
         &self,
@@ -91,7 +91,7 @@ impl UnityMcpServer {
 
     #[tool(
         name = "create_game_object",
-        description = "Create a new GameObject in the active Unity scene"
+        description = "Create an empty GameObject or a built-in primitive (Cube, Sphere, Capsule, Cylinder, Plane, Quad) at an optional world position. Returns the created object's name."
     )]
     async fn create_game_object(
         &self,
@@ -106,7 +106,7 @@ impl UnityMcpServer {
 
     #[tool(
         name = "get_scene_info",
-        description = "Get information about the active Unity scene including name, path, root object count, and dirty state"
+        description = "Return metadata for the active scene: name, path, buildIndex, rootCount, isDirty. Pass include_all_scenes=true to also list all currently loaded scenes."
     )]
     async fn get_scene_info(
         &self,
@@ -119,7 +119,7 @@ impl UnityMcpServer {
 
     #[tool(
         name = "add_component",
-        description = "Add a component to a GameObject by name"
+        description = "Add a Unity component to a named GameObject. Accepts short names (Rigidbody) or fully qualified names (UnityEngine.Rigidbody). Returns {gameObject, component, instanceId} on success."
     )]
     async fn add_component(
         &self,
@@ -132,7 +132,7 @@ impl UnityMcpServer {
 
     #[tool(
         name = "set_property",
-        description = "Set a property value on a component attached to a GameObject"
+        description = "Set a serialized property on a component attached to a named GameObject. Returns {gameObject, component, property, success} on success."
     )]
     async fn set_property(
         &self,
@@ -145,7 +145,7 @@ impl UnityMcpServer {
 
     #[tool(
         name = "remove_component",
-        description = "Remove a component from a GameObject by type name"
+        description = "Remove a component from a named GameObject by type name. Returns OK on success."
     )]
     async fn remove_component(
         &self,
@@ -158,7 +158,7 @@ impl UnityMcpServer {
 
     #[tool(
         name = "reparent_game_object",
-        description = "Move a GameObject to a new parent in the hierarchy"
+        description = "Move a GameObject under a new parent. Pass null new_parent_name to promote to scene root. Preserves world position by default."
     )]
     async fn reparent_game_object(
         &self,
@@ -171,7 +171,7 @@ impl UnityMcpServer {
 
     #[tool(
         name = "delete_game_object",
-        description = "Delete a GameObject from the active scene"
+        description = "Permanently delete a named GameObject and all its children from the active scene."
     )]
     async fn delete_game_object(
         &self,
@@ -184,7 +184,7 @@ impl UnityMcpServer {
 
     #[tool(
         name = "duplicate_game_object",
-        description = "Duplicate an existing GameObject in the scene"
+        description = "Duplicate a named GameObject and all its children. Optionally provide new_name; Unity derives one from the original if omitted."
     )]
     async fn duplicate_game_object(
         &self,
@@ -197,7 +197,7 @@ impl UnityMcpServer {
 
     #[tool(
         name = "create_prefab",
-        description = "Save a scene GameObject as a prefab asset"
+        description = "Save a scene GameObject as a prefab asset at the given Assets/… path. The source object stays in the scene. Returns the saved asset path."
     )]
     async fn create_prefab(
         &self,
@@ -210,7 +210,7 @@ impl UnityMcpServer {
 
     #[tool(
         name = "instantiate_prefab",
-        description = "Instantiate a prefab asset into the active scene"
+        description = "Instantiate a prefab from an Assets/… path into the active scene at an optional world position. Returns the name of the new scene object."
     )]
     async fn instantiate_prefab(
         &self,
@@ -223,7 +223,7 @@ impl UnityMcpServer {
 
     #[tool(
         name = "find_assets_by_type",
-        description = "Search for assets by type filter (e.g. t:Material, t:Prefab)"
+        description = "Search the Asset Database by Unity type filter (t:Material, t:Prefab, t:Texture2D, t:AudioClip, t:ScriptableObject, t:Mesh). Returns a list of matching asset paths."
     )]
     async fn find_assets_by_type(
         &self,
@@ -236,7 +236,7 @@ impl UnityMcpServer {
 
     #[tool(
         name = "find_assets_by_name",
-        description = "Search for assets by name pattern"
+        description = "Search the Asset Database by partial name match. Returns matching asset paths. Combine with find_assets_by_type for finer results."
     )]
     async fn find_assets_by_name(
         &self,

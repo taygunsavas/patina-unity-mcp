@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 pub struct AddComponentArgs {
     /// Name of the target GameObject.
     pub game_object_name: String,
-    /// Fully qualified component type name (e.g. "UnityEngine.Rigidbody", "UnityEngine.BoxCollider").
+    /// Component type name. Short name (e.g. "Rigidbody") or fully qualified (e.g. "UnityEngine.Rigidbody") both work.
     pub component_type: String,
 }
 
@@ -15,9 +15,10 @@ pub struct SetPropertyArgs {
     pub game_object_name: String,
     /// Component type name (e.g. "Transform", "Rigidbody").
     pub component_type: String,
-    /// Property name to set (e.g. "mass", "position").
+    /// Property name to set (e.g. "mass", "useGravity", "position").
     pub property_name: String,
-    /// Property value as JSON.
+    /// Value as JSON matching the property type: float → 1.5, bool → true, int → 42, string → "text",
+    /// Vector2 → [0.0,0.0], Vector3 → [0.0,0.0,0.0], Color → [1.0,0.0,0.0,1.0], Quaternion → [0.0,0.0,0.0,1.0].
     pub value: serde_json::Value,
 }
 
