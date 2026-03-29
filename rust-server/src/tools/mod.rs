@@ -5,6 +5,7 @@ pub mod gameobject;
 pub mod hierarchy;
 pub mod hierarchy_ops;
 pub mod inspection;
+pub mod material;
 pub mod prefab;
 pub mod scene;
 pub mod script;
@@ -26,5 +27,8 @@ pub use prefab::{CreatePrefabArgs, InstantiatePrefabArgs};
 pub use scene::{
     GetBuildSettingsArgs, GetSceneInfoArgs, NewSceneArgs, OpenSceneArgs, SaveSceneArgs,
     SetBuildScenesArgs,
+};
+pub use material::{
+    AssignMaterialArgs, CreateMaterialArgs, GetMaterialPropertiesArgs, SetMaterialPropertyArgs,
 };
 pub use script::CreateScriptArgs;
