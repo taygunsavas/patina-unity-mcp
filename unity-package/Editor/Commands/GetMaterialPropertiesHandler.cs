@@ -74,6 +74,6 @@ namespace Patina.Editor.Commands
         }
 
         private static JObject Error(string message) =>
-            new JObject { ["error"] = message };
+            new JObject { ["error"] = message, ["success"] = false };
     }
 }
