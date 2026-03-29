@@ -18,3 +18,31 @@ pub struct InstantiatePrefabArgs {
     /// Optional name for the instantiated object.
     pub name: Option<String>,
 }
+
+#[derive(Debug, Deserialize, Serialize, JsonSchema)]
+pub struct GetPrefabInfoArgs {
+    /// Asset path ("Assets/…") or scene GameObject name to inspect.
+    pub target: String,
+    /// Hint for target type: "asset" or "instance". Auto-detected if omitted.
+    pub target_type: Option<String>,
+}
+
+#[derive(Debug, Deserialize, Serialize, JsonSchema)]
+pub struct UnpackPrefabArgs {
+    /// Name of the scene GameObject to unpack.
+    pub game_object_name: String,
+    /// Unpack depth: "outermost" (default) leaves nested prefabs intact; "completely" unpacks all levels.
+    pub mode: Option<String>,
+}
+
+#[derive(Debug, Deserialize, Serialize, JsonSchema)]
+pub struct ApplyPrefabOverridesArgs {
+    /// Name of the scene GameObject whose overrides to apply back to the prefab asset.
+    pub game_object_name: String,
+}
+
+#[derive(Debug, Deserialize, Serialize, JsonSchema)]
+pub struct RevertPrefabOverridesArgs {
+    /// Name of the scene GameObject whose overrides to revert to prefab defaults.
+    pub game_object_name: String,
+}
