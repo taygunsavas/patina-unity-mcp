@@ -33,12 +33,31 @@ namespace Patina.Editor.Commands
                 if (!material.HasProperty(capturedProp))
                     throw new System.InvalidOperationException($"Property '{capturedProp}' not found on shader '{material.shader.name}'");
 
+                var shader = material.shader;
+                int propIndex = -1;
+                for (int pi = 0; pi < ShaderUtil.GetPropertyCount(shader); pi++)
+                {
+                    if (ShaderUtil.GetPropertyName(shader, pi) == capturedProp)
+                    {
+                        propIndex = pi;
+                        break;
+                    }
+                }
+                if (propIndex < 0)
+                    throw new System.InvalidOperationException($"Property '{capturedProp}' not found on shader '{shader.name}'");
+
+                var propType = ShaderUtil.GetPropertyType(shader, propIndex);
+
                 if (capturedValue.Type == JTokenType.Float || capturedValue.Type == JTokenType.Integer)
                 {
+                    if (propType != ShaderUtil.ShaderPropertyType.Float && propType != ShaderUtil.ShaderPropertyType.Range)
+                        throw new System.ArgumentException($"Numeric value requires a Float or Range property, but '{capturedProp}' is '{propType}'");
                     material.SetFloat(capturedProp, capturedValue.Value<float>());
                 }
                 else if (capturedValue.Type == JTokenType.Boolean)
                 {
+                    if (propType != ShaderUtil.ShaderPropertyType.Float && propType != ShaderUtil.ShaderPropertyType.Range)
+                        throw new System.ArgumentException($"Boolean value requires a Float or Range property, but '{capturedProp}' is '{propType}'");
                     material.SetFloat(capturedProp, capturedValue.Value<bool>() ? 1f : 0f);
                 }
                 else if (capturedValue.Type == JTokenType.Array)
@@ -46,20 +65,6 @@ namespace Patina.Editor.Commands
                     var arr = (JArray)capturedValue;
                     if (arr.Count < 3)
                         throw new System.ArgumentException("Array value must have at least 3 elements");
-
-                    var shader = material.shader;
-                    int propIndex = -1;
-                    for (int pi = 0; pi < ShaderUtil.GetPropertyCount(shader); pi++)
-                    {
-                        if (ShaderUtil.GetPropertyName(shader, pi) == capturedProp)
-                        {
-                            propIndex = pi;
-                            break;
-                        }
-                    }
-                    if (propIndex < 0)
-                        throw new System.InvalidOperationException($"Property '{capturedProp}' not found on shader '{shader.name}'");
-                    var propType = ShaderUtil.GetPropertyType(shader, propIndex);
 
                     float Get(int i, float def = 0f) => i < arr.Count ? arr[i].Value<float>() : def;
 
@@ -78,6 +83,8 @@ namespace Patina.Editor.Commands
                 }
                 else if (capturedValue.Type == JTokenType.String)
                 {
+                    if (propType != ShaderUtil.ShaderPropertyType.TexEnv)
+                        throw new System.ArgumentException($"String value requires a TexEnv property, but '{capturedProp}' is '{propType}'");
                     string texPath = capturedValue.Value<string>();
                     var texture = AssetDatabase.LoadAssetAtPath<Texture>(texPath);
                     if (texture == null)
