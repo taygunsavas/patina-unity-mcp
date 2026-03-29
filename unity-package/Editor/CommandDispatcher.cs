@@ -99,6 +99,10 @@ namespace Patina.Editor
             RegisterHandler("get_console_logs", new GetConsoleLogsHandler());
             RegisterHandler("execute_menu_item", new ExecuteMenuItemHandler());
             RegisterHandler("clear_console", new ClearConsoleHandler());
+            // Issue #27 — Build and player settings tools
+            RegisterHandler("get_player_settings", new GetPlayerSettingsHandler());
+            RegisterHandler("set_player_settings", new SetPlayerSettingsHandler());
+            RegisterHandler("set_build_target", new SetBuildTargetHandler());
         }
 
         public static int HandlerCount

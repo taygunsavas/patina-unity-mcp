@@ -17,8 +17,9 @@ use crate::tools::{
     GetMaterialPropertiesArgs, GetPrefabInfoArgs, GetSceneInfoArgs, InstantiatePrefabArgs,
     LogToConsoleArgs, MoveAssetArgs, NewSceneArgs, OpenSceneArgs, RefreshAssetDatabaseArgs,
     RemoveComponentArgs, RenameAssetArgs, ReparentGameObjectArgs, RevertPrefabOverridesArgs,
-    SaveSceneArgs, SetAssetLabelsArgs, SetBuildScenesArgs, SetMaterialPropertyArgs,
-    SetPlayModeArgs, SetPropertyArgs, UnpackPrefabArgs,
+    GetPlayerSettingsArgs, SaveSceneArgs, SetAssetLabelsArgs, SetBuildScenesArgs,
+    SetBuildTargetArgs, SetMaterialPropertyArgs, SetPlayModeArgs, SetPlayerSettingsArgs,
+    SetPropertyArgs, UnpackPrefabArgs,
 };
 
 #[derive(Clone)]
@@ -651,6 +652,47 @@ impl UnityMcpServer {
         let params = serde_json::to_value(&args)
             .map_err(|e| McpError::internal_error(e.to_string(), None))?;
         self.call_bridge("clear_console", params).await
+    }
+
+    // === Issue #27 — Build and player settings tools ===
+
+    #[tool(
+        name = "get_player_settings",
+        description = "Read Unity Player Settings for a build target group. build_target_group accepts: Standalone (default), Android, iOS, WebGL. Returns {productName, companyName, bundleVersion, applicationIdentifier, scriptingBackend, apiCompatibilityLevel, colorSpace}."
+    )]
+    async fn get_player_settings(
+        &self,
+        Parameters(args): Parameters<GetPlayerSettingsArgs>,
+    ) -> Result<CallToolResult, McpError> {
+        let params = serde_json::to_value(&args)
+            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
+        self.call_bridge("get_player_settings", params).await
+    }
+
+    #[tool(
+        name = "set_player_settings",
+        description = "Write Unity Player Settings fields. Only non-null fields are written; unspecified fields are unchanged. build_target_group accepts: Standalone (default), Android, iOS, WebGL. Calls AssetDatabase.SaveAssets() after any mutation. Returns {changed: [...fieldNames], success}."
+    )]
+    async fn set_player_settings(
+        &self,
+        Parameters(args): Parameters<SetPlayerSettingsArgs>,
+    ) -> Result<CallToolResult, McpError> {
+        let params = serde_json::to_value(&args)
+            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
+        self.call_bridge("set_player_settings", params).await
+    }
+
+    #[tool(
+        name = "set_build_target",
+        description = "Switch the active Unity build target. Accepts build_target strings like StandaloneWindows64, Android, WebGL, iOS. WARNING: blocks the main thread for 30–120 seconds on large projects. Returns {previousTarget, newTarget, success}."
+    )]
+    async fn set_build_target(
+        &self,
+        Parameters(args): Parameters<SetBuildTargetArgs>,
+    ) -> Result<CallToolResult, McpError> {
+        let params = serde_json::to_value(&args)
+            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
+        self.call_bridge("set_build_target", params).await
     }
 }
 
