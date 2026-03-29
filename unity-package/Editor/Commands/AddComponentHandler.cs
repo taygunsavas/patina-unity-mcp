@@ -45,7 +45,7 @@ namespace Patina.Editor.Commands
             return result;
         }
 
-        private static Type FindType(string typeName)
+        internal static Type FindType(string typeName)
         {
             Type type = Type.GetType(typeName);
             if (type != null) return type;

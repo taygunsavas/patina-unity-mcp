@@ -62,6 +62,11 @@ namespace Patina.Editor
             // Phase 2 — Assets
             RegisterHandler("find_assets_by_type", new FindAssetsByTypeHandler());
             RegisterHandler("find_assets_by_name", new FindAssetsByNameHandler());
+            // Phase 4 — Inspection and spatial search
+            RegisterHandler("get_game_object_info", new GetGameObjectInfoHandler());
+            RegisterHandler("find_game_objects_by_tag", new FindGameObjectsByTagHandler());
+            RegisterHandler("find_game_objects_by_component", new FindGameObjectsByComponentHandler());
+            RegisterHandler("find_game_objects_by_layer", new FindGameObjectsByLayerHandler());
             // Phase 3 — Scene lifecycle
             RegisterHandler("open_scene", new OpenSceneHandler());
             RegisterHandler("save_scene", new SaveSceneHandler());

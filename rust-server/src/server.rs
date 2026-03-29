@@ -9,7 +9,8 @@ use rmcp::{
 use crate::bridge::BridgeClient;
 use crate::tools::{
     AddComponentArgs, CreateGameObjectArgs, CreatePrefabArgs, DeleteGameObjectArgs,
-    DuplicateGameObjectArgs, FindAssetsByNameArgs, FindAssetsByTypeArgs, GetBuildSettingsArgs,
+    DuplicateGameObjectArgs, FindAssetsByNameArgs, FindAssetsByTypeArgs, FindGameObjectsByComponentArgs,
+    FindGameObjectsByLayerArgs, FindGameObjectsByTagArgs, GetBuildSettingsArgs, GetGameObjectInfoArgs,
     GetHierarchyArgs, GetSceneInfoArgs, InstantiatePrefabArgs, LogToConsoleArgs, NewSceneArgs,
     OpenSceneArgs, RemoveComponentArgs, ReparentGameObjectArgs, SaveSceneArgs, SetBuildScenesArgs,
     SetPropertyArgs,
@@ -246,6 +247,60 @@ impl UnityMcpServer {
         let params = serde_json::to_value(&args)
             .map_err(|e| McpError::internal_error(e.to_string(), None))?;
         self.call_bridge("find_assets_by_name", params).await
+    }
+
+    // === Phase 4 tools — Inspection and spatial search ===
+
+    #[tool(
+        name = "get_game_object_info",
+        description = "Return full details for a named GameObject: transform, tag, layer, static flag, scene path, and all attached components with their serialized properties. Set include_component_properties=false to get component names only. Properties use SerializedObject paths (depth ≤ 3, arrays ≤ 32 elements)."
+    )]
+    async fn get_game_object_info(
+        &self,
+        Parameters(args): Parameters<GetGameObjectInfoArgs>,
+    ) -> Result<CallToolResult, McpError> {
+        let params = serde_json::to_value(&args)
+            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
+        self.call_bridge("get_game_object_info", params).await
+    }
+
+    #[tool(
+        name = "find_game_objects_by_tag",
+        description = "Find all active GameObjects with the given tag. Returns {tag, count, objects:[{name, instanceId, scenePath}]}. max_results caps output (default 50)."
+    )]
+    async fn find_game_objects_by_tag(
+        &self,
+        Parameters(args): Parameters<FindGameObjectsByTagArgs>,
+    ) -> Result<CallToolResult, McpError> {
+        let params = serde_json::to_value(&args)
+            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
+        self.call_bridge("find_game_objects_by_tag", params).await
+    }
+
+    #[tool(
+        name = "find_game_objects_by_component",
+        description = "Find all scene objects that have the given component type. Accepts short (Rigidbody) or fully qualified (UnityEngine.Rigidbody) names. Returns {componentType, count, objects:[{name, instanceId, scenePath}]}. max_results caps output (default 50)."
+    )]
+    async fn find_game_objects_by_component(
+        &self,
+        Parameters(args): Parameters<FindGameObjectsByComponentArgs>,
+    ) -> Result<CallToolResult, McpError> {
+        let params = serde_json::to_value(&args)
+            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
+        self.call_bridge("find_game_objects_by_component", params).await
+    }
+
+    #[tool(
+        name = "find_game_objects_by_layer",
+        description = "Find all scene objects on the given layer by name (e.g. \"Default\", \"UI\"). Returns {layerName, layerIndex, count, objects:[{name, instanceId, scenePath}]}. Returns an error if the layer name is not defined. max_results caps output (default 50)."
+    )]
+    async fn find_game_objects_by_layer(
+        &self,
+        Parameters(args): Parameters<FindGameObjectsByLayerArgs>,
+    ) -> Result<CallToolResult, McpError> {
+        let params = serde_json::to_value(&args)
+            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
+        self.call_bridge("find_game_objects_by_layer", params).await
     }
 
     // === Phase 3 tools — Scene lifecycle ===
