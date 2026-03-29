@@ -9,6 +9,7 @@ pub mod inspection;
 pub mod material;
 pub mod prefab;
 pub mod scene;
+pub mod selection;
 pub mod player_settings;
 pub mod script;
 
@@ -36,5 +37,6 @@ pub use scene::{
     GetBuildSettingsArgs, GetSceneInfoArgs, NewSceneArgs, OpenSceneArgs, SaveSceneArgs,
     SetBuildScenesArgs,
 };
+pub use selection::{GetSelectionArgs, SetSelectionArgs};
 pub use player_settings::{GetPlayerSettingsArgs, SetBuildTargetArgs, SetPlayerSettingsArgs};
 pub use script::CreateScriptArgs;

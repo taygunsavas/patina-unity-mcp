@@ -19,7 +19,7 @@ use crate::tools::{
     RemoveComponentArgs, RenameAssetArgs, ReparentGameObjectArgs, RevertPrefabOverridesArgs,
     GetPlayerSettingsArgs, SaveSceneArgs, SetAssetLabelsArgs, SetBuildScenesArgs,
     SetBuildTargetArgs, SetMaterialPropertyArgs, SetPlayModeArgs, SetPlayerSettingsArgs,
-    SetPropertyArgs, UnpackPrefabArgs,
+    SetPropertyArgs, GetSelectionArgs, SetSelectionArgs, UnpackPrefabArgs,
 };
 
 #[derive(Clone)]
@@ -693,6 +693,34 @@ impl UnityMcpServer {
         let params = serde_json::to_value(&args)
             .map_err(|e| McpError::internal_error(e.to_string(), None))?;
         self.call_bridge("set_build_target", params).await
+    }
+
+    // === Issue #28 — Editor selection tools ===
+
+    #[tool(
+        name = "get_selection",
+        description = "Return the current Editor selection. gameObjects lists scene objects with name and instanceId; assetPaths lists selected project assets by path; count is the total selection count. Returns {gameObjects:[{name,instanceId}], assetPaths:[...], count}."
+    )]
+    async fn get_selection(
+        &self,
+        Parameters(args): Parameters<GetSelectionArgs>,
+    ) -> Result<CallToolResult, McpError> {
+        let params = serde_json::to_value(&args)
+            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
+        self.call_bridge("get_selection", params).await
+    }
+
+    #[tool(
+        name = "set_selection",
+        description = "Set the Editor selection to the specified GameObjects and/or asset paths. Provide game_object_names for scene objects and/or asset_paths for project assets; both lists are combined into a single multi-selection. Returns an error for any unresolvable name or path. Returns {selectedCount, success}."
+    )]
+    async fn set_selection(
+        &self,
+        Parameters(args): Parameters<SetSelectionArgs>,
+    ) -> Result<CallToolResult, McpError> {
+        let params = serde_json::to_value(&args)
+            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
+        self.call_bridge("set_selection", params).await
     }
 }
 

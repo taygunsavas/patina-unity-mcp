@@ -103,6 +103,9 @@ namespace Patina.Editor
             RegisterHandler("get_player_settings", new GetPlayerSettingsHandler());
             RegisterHandler("set_player_settings", new SetPlayerSettingsHandler());
             RegisterHandler("set_build_target", new SetBuildTargetHandler());
+            // Issue #28 — Editor selection tools
+            RegisterHandler("get_selection", new GetSelectionHandler());
+            RegisterHandler("set_selection", new SetSelectionHandler());
         }
 
         public static int HandlerCount
