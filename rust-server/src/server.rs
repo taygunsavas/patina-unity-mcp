@@ -20,6 +20,7 @@ use crate::tools::{
     GetPlayerSettingsArgs, SaveSceneArgs, SetAssetLabelsArgs, SetBuildScenesArgs,
     SetBuildTargetArgs, SetMaterialPropertyArgs, SetPlayModeArgs, SetPlayerSettingsArgs,
     SetPropertyArgs, GetSelectionArgs, SetSelectionArgs, UnpackPrefabArgs,
+    GetProjectSettingsArgs, SetActiveStateArgs, SetLayerArgs, SetTagArgs, SetTransformArgs,
 };
 
 #[derive(Clone)]
@@ -721,6 +722,73 @@ impl UnityMcpServer {
         let params = serde_json::to_value(&args)
             .map_err(|e| McpError::internal_error(e.to_string(), None))?;
         self.call_bridge("set_selection", params).await
+    }
+
+    // === Issue #29 — Convenience GameObject operation tools ===
+
+    #[tool(
+        name = "set_active_state",
+        description = "Set the active state of a named GameObject. Unlike set_property, this calls SetActive() directly since activeSelf is not a serialized property. Returns {gameObject, active, success}."
+    )]
+    async fn set_active_state(
+        &self,
+        Parameters(args): Parameters<SetActiveStateArgs>,
+    ) -> Result<CallToolResult, McpError> {
+        let params = serde_json::to_value(&args)
+            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
+        self.call_bridge("set_active_state", params).await
+    }
+
+    #[tool(
+        name = "set_tag",
+        description = "Set the tag on a named GameObject. The tag must be registered in Project Settings > Tags and Layers; returns a descriptive error if unregistered. Records undo. Returns {gameObject, tag, success}."
+    )]
+    async fn set_tag(
+        &self,
+        Parameters(args): Parameters<SetTagArgs>,
+    ) -> Result<CallToolResult, McpError> {
+        let params = serde_json::to_value(&args)
+            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
+        self.call_bridge("set_tag", params).await
+    }
+
+    #[tool(
+        name = "set_layer",
+        description = "Set the layer on a named GameObject by layer name (e.g. \"Default\", \"UI\"). Returns an error if the layer is not defined. Set apply_to_children=true to also apply to all descendants. Records undo. Returns {gameObject, layerName, layerIndex, success}."
+    )]
+    async fn set_layer(
+        &self,
+        Parameters(args): Parameters<SetLayerArgs>,
+    ) -> Result<CallToolResult, McpError> {
+        let params = serde_json::to_value(&args)
+            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
+        self.call_bridge("set_layer", params).await
+    }
+
+    #[tool(
+        name = "set_transform",
+        description = "Set position, rotation (Euler degrees), and/or scale on a named GameObject in one call. Only non-null fields are applied; omit a field to leave it unchanged. space=\"world\" (default) uses world-space transforms; space=\"local\" uses local-space. Records undo. Returns {gameObject, position, rotationEuler, scale, success}."
+    )]
+    async fn set_transform(
+        &self,
+        Parameters(args): Parameters<SetTransformArgs>,
+    ) -> Result<CallToolResult, McpError> {
+        let params = serde_json::to_value(&args)
+            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
+        self.call_bridge("set_transform", params).await
+    }
+
+    #[tool(
+        name = "get_project_settings",
+        description = "Return a read-only snapshot of the current Unity project settings. Intended as an orientation call at the start of a session. Returns {unityVersion, productName, companyName, activeBuildTarget, colorSpace, isPlaying, isCompiling, scriptingBackend, physicsGravity:[x,y,z]}."
+    )]
+    async fn get_project_settings(
+        &self,
+        Parameters(args): Parameters<GetProjectSettingsArgs>,
+    ) -> Result<CallToolResult, McpError> {
+        let params = serde_json::to_value(&args)
+            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
+        self.call_bridge("get_project_settings", params).await
     }
 }
 

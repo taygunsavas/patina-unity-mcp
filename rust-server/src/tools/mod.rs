@@ -3,6 +3,7 @@ pub mod component;
 pub mod console;
 pub mod editor;
 pub mod gameobject;
+pub mod gameobject_ops;
 pub mod hierarchy;
 pub mod hierarchy_ops;
 pub mod inspection;
@@ -23,6 +24,7 @@ pub use editor::{
     ClearConsoleArgs, ExecuteMenuItemArgs, GetConsoleLogsArgs, GetEditorStateArgs, SetPlayModeArgs,
 };
 pub use gameobject::CreateGameObjectArgs;
+pub use gameobject_ops::{GetProjectSettingsArgs, SetActiveStateArgs, SetLayerArgs, SetTagArgs, SetTransformArgs};
 pub use hierarchy::GetHierarchyArgs;
 pub use hierarchy_ops::{DeleteGameObjectArgs, DuplicateGameObjectArgs, ReparentGameObjectArgs};
 pub use inspection::{

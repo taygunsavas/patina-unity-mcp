@@ -106,6 +106,12 @@ namespace Patina.Editor
             // Issue #28 — Editor selection tools
             RegisterHandler("get_selection", new GetSelectionHandler());
             RegisterHandler("set_selection", new SetSelectionHandler());
+            // Issue #29 — Convenience GameObject operation tools
+            RegisterHandler("set_active_state", new SetActiveStateHandler());
+            RegisterHandler("set_tag", new SetTagHandler());
+            RegisterHandler("set_layer", new SetLayerHandler());
+            RegisterHandler("set_transform", new SetTransformHandler());
+            RegisterHandler("get_project_settings", new GetProjectSettingsHandler());
         }
 
         public static int HandlerCount
