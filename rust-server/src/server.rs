@@ -537,7 +537,7 @@ impl UnityMcpServer {
 
     #[tool(
         name = "get_editor_state",
-        description = "Return the current Unity Editor state: isCompiling, isPlaying, isPaused, isUpdating, hasCompileErrors, unityVersion, projectPath. Call this before any mutation to guard against compile-in-progress errors."
+        description = "Return the current Unity Editor state. Call this before any mutation to guard against compile-in-progress errors. Returns {isCompiling, isPlaying, isPaused, isUpdating, hasCompileErrors, unityVersion, projectPath}."
     )]
     async fn get_editor_state(
         &self,
