@@ -10,7 +10,7 @@ namespace Patina.Editor.Commands
             await MainThreadQueue.EnqueueAsync<object>(() =>
             {
                 var logEntries = System.Type.GetType("UnityEditor.LogEntries, UnityEditor");
-                var clearMethod = logEntries?.GetMethod("Clear", System.Reflection.BindingFlags.Static | System.Reflection.BindingFlags.Public);
+                var clearMethod = logEntries?.GetMethod("Clear", System.Reflection.BindingFlags.Static | System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.NonPublic);
 
                 if (logEntries == null || clearMethod == null)
                     throw new System.Exception("Could not access LogEntries.Clear via reflection");
