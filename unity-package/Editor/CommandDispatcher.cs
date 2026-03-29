@@ -62,6 +62,12 @@ namespace Patina.Editor
             // Phase 2 — Assets
             RegisterHandler("find_assets_by_type", new FindAssetsByTypeHandler());
             RegisterHandler("find_assets_by_name", new FindAssetsByNameHandler());
+            // Phase 3 — Scene lifecycle
+            RegisterHandler("open_scene", new OpenSceneHandler());
+            RegisterHandler("save_scene", new SaveSceneHandler());
+            RegisterHandler("new_scene", new NewSceneHandler());
+            RegisterHandler("get_build_settings", new GetBuildSettingsHandler());
+            RegisterHandler("set_build_scenes", new SetBuildScenesHandler());
         }
 
         public static int HandlerCount

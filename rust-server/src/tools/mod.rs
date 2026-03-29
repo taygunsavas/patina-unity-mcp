@@ -14,4 +14,7 @@ pub use gameobject::CreateGameObjectArgs;
 pub use hierarchy::GetHierarchyArgs;
 pub use hierarchy_ops::{DeleteGameObjectArgs, DuplicateGameObjectArgs, ReparentGameObjectArgs};
 pub use prefab::{CreatePrefabArgs, InstantiatePrefabArgs};
-pub use scene::GetSceneInfoArgs;
+pub use scene::{
+    GetBuildSettingsArgs, GetSceneInfoArgs, NewSceneArgs, OpenSceneArgs, SaveSceneArgs,
+    SetBuildScenesArgs,
+};

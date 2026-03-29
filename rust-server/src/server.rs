@@ -9,9 +9,10 @@ use rmcp::{
 use crate::bridge::BridgeClient;
 use crate::tools::{
     AddComponentArgs, CreateGameObjectArgs, CreatePrefabArgs, DeleteGameObjectArgs,
-    DuplicateGameObjectArgs, FindAssetsByNameArgs, FindAssetsByTypeArgs, GetHierarchyArgs,
-    GetSceneInfoArgs, InstantiatePrefabArgs, LogToConsoleArgs, RemoveComponentArgs,
-    ReparentGameObjectArgs, SetPropertyArgs,
+    DuplicateGameObjectArgs, FindAssetsByNameArgs, FindAssetsByTypeArgs, GetBuildSettingsArgs,
+    GetHierarchyArgs, GetSceneInfoArgs, InstantiatePrefabArgs, LogToConsoleArgs, NewSceneArgs,
+    OpenSceneArgs, RemoveComponentArgs, ReparentGameObjectArgs, SaveSceneArgs, SetBuildScenesArgs,
+    SetPropertyArgs,
 };
 
 #[derive(Clone)]
@@ -245,6 +246,73 @@ impl UnityMcpServer {
         let params = serde_json::to_value(&args)
             .map_err(|e| McpError::internal_error(e.to_string(), None))?;
         self.call_bridge("find_assets_by_name", params).await
+    }
+
+    // === Phase 3 tools — Scene lifecycle ===
+
+    #[tool(
+        name = "open_scene",
+        description = "Open a scene by project-relative path (e.g. Assets/Scenes/Main.unity). mode=\"single\" (default) closes the current scene; mode=\"additive\" keeps it open. Returns an error with dirty_warning if the active scene has unsaved changes in single mode."
+    )]
+    async fn open_scene(
+        &self,
+        Parameters(args): Parameters<OpenSceneArgs>,
+    ) -> Result<CallToolResult, McpError> {
+        let params = serde_json::to_value(&args)
+            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
+        self.call_bridge("open_scene", params).await
+    }
+
+    #[tool(
+        name = "save_scene",
+        description = "Save the active scene, or the scene at scene_path. Provide save_as_path to write a copy to a new location (Save As). Returns {savedPath, success}."
+    )]
+    async fn save_scene(
+        &self,
+        Parameters(args): Parameters<SaveSceneArgs>,
+    ) -> Result<CallToolResult, McpError> {
+        let params = serde_json::to_value(&args)
+            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
+        self.call_bridge("save_scene", params).await
+    }
+
+    #[tool(
+        name = "new_scene",
+        description = "Create and save a new scene. save_path defaults to Assets/Scenes/<name>.unity. setup=\"empty\" omits the default Camera and Directional Light; default is \"default_game_objects\". Returns {name, path, success}."
+    )]
+    async fn new_scene(
+        &self,
+        Parameters(args): Parameters<NewSceneArgs>,
+    ) -> Result<CallToolResult, McpError> {
+        let params = serde_json::to_value(&args)
+            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
+        self.call_bridge("new_scene", params).await
+    }
+
+    #[tool(
+        name = "get_build_settings",
+        description = "Return the project's Build Settings: activeBuildTarget, scriptingBackend, and the full scene list including disabled scenes. Returns {activeBuildTarget, scriptingBackend, scenes:[{path, enabled, buildIndex}]}."
+    )]
+    async fn get_build_settings(
+        &self,
+        Parameters(args): Parameters<GetBuildSettingsArgs>,
+    ) -> Result<CallToolResult, McpError> {
+        let params = serde_json::to_value(&args)
+            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
+        self.call_bridge("get_build_settings", params).await
+    }
+
+    #[tool(
+        name = "set_build_scenes",
+        description = "Replace the Build Settings scene list with the provided ordered scene_paths. All listed scenes are enabled; any previously listed scenes not in the new list are removed. Returns {sceneCount, success}."
+    )]
+    async fn set_build_scenes(
+        &self,
+        Parameters(args): Parameters<SetBuildScenesArgs>,
+    ) -> Result<CallToolResult, McpError> {
+        let params = serde_json::to_value(&args)
+            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
+        self.call_bridge("set_build_scenes", params).await
     }
 }
 
