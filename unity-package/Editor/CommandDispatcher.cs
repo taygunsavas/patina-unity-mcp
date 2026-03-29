@@ -59,6 +59,11 @@ namespace Patina.Editor
             // Phase 2 — Prefabs
             RegisterHandler("create_prefab", new CreatePrefabHandler());
             RegisterHandler("instantiate_prefab", new InstantiatePrefabHandler());
+            // Issue #26 — Advanced prefab workflow
+            RegisterHandler("get_prefab_info", new GetPrefabInfoHandler());
+            RegisterHandler("unpack_prefab", new UnpackPrefabHandler());
+            RegisterHandler("apply_prefab_overrides", new ApplyPrefabOverridesHandler());
+            RegisterHandler("revert_prefab_overrides", new RevertPrefabOverridesHandler());
             // Phase 2 — Assets
             RegisterHandler("find_assets_by_type", new FindAssetsByTypeHandler());
             RegisterHandler("find_assets_by_name", new FindAssetsByNameHandler());

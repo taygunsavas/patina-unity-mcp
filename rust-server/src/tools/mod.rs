@@ -30,7 +30,7 @@ pub use inspection::{
 pub use material::{
     AssignMaterialArgs, CreateMaterialArgs, GetMaterialPropertiesArgs, SetMaterialPropertyArgs,
 };
-pub use prefab::{CreatePrefabArgs, InstantiatePrefabArgs};
+pub use prefab::{ApplyPrefabOverridesArgs, CreatePrefabArgs, GetPrefabInfoArgs, InstantiatePrefabArgs, RevertPrefabOverridesArgs, UnpackPrefabArgs};
 pub use scene::{
     GetBuildSettingsArgs, GetSceneInfoArgs, NewSceneArgs, OpenSceneArgs, SaveSceneArgs,
     SetBuildScenesArgs,

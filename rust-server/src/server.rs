@@ -8,16 +8,17 @@ use rmcp::{
 
 use crate::bridge::BridgeClient;
 use crate::tools::{
-    AddComponentArgs, AssignMaterialArgs, ClearConsoleArgs, CreateFolderArgs, CreateGameObjectArgs,
-    CreateMaterialArgs, CreatePrefabArgs, CreateScriptArgs, DeleteAssetArgs, DeleteGameObjectArgs,
-    DuplicateGameObjectArgs, ExecuteMenuItemArgs, FindAssetsByNameArgs, FindAssetsByTypeArgs,
-    FindGameObjectsByComponentArgs, FindGameObjectsByLayerArgs, FindGameObjectsByTagArgs,
-    GetAssetInfoArgs, GetBuildSettingsArgs, GetConsoleLogsArgs, GetEditorStateArgs,
-    GetGameObjectInfoArgs, GetHierarchyArgs, GetMaterialPropertiesArgs, GetSceneInfoArgs,
-    InstantiatePrefabArgs, LogToConsoleArgs, MoveAssetArgs, NewSceneArgs, OpenSceneArgs,
-    RefreshAssetDatabaseArgs, RemoveComponentArgs, RenameAssetArgs, ReparentGameObjectArgs,
+    AddComponentArgs, ApplyPrefabOverridesArgs, AssignMaterialArgs, ClearConsoleArgs,
+    CreateFolderArgs, CreateGameObjectArgs, CreateMaterialArgs, CreatePrefabArgs, CreateScriptArgs,
+    DeleteAssetArgs, DeleteGameObjectArgs, DuplicateGameObjectArgs, ExecuteMenuItemArgs,
+    FindAssetsByNameArgs, FindAssetsByTypeArgs, FindGameObjectsByComponentArgs,
+    FindGameObjectsByLayerArgs, FindGameObjectsByTagArgs, GetAssetInfoArgs, GetBuildSettingsArgs,
+    GetConsoleLogsArgs, GetEditorStateArgs, GetGameObjectInfoArgs, GetHierarchyArgs,
+    GetMaterialPropertiesArgs, GetPrefabInfoArgs, GetSceneInfoArgs, InstantiatePrefabArgs,
+    LogToConsoleArgs, MoveAssetArgs, NewSceneArgs, OpenSceneArgs, RefreshAssetDatabaseArgs,
+    RemoveComponentArgs, RenameAssetArgs, ReparentGameObjectArgs, RevertPrefabOverridesArgs,
     SaveSceneArgs, SetAssetLabelsArgs, SetBuildScenesArgs, SetMaterialPropertyArgs,
-    SetPlayModeArgs, SetPropertyArgs,
+    SetPlayModeArgs, SetPropertyArgs, UnpackPrefabArgs,
 };
 
 #[derive(Clone)]
@@ -225,6 +226,58 @@ impl UnityMcpServer {
         let params = serde_json::to_value(&args)
             .map_err(|e| McpError::internal_error(e.to_string(), None))?;
         self.call_bridge("instantiate_prefab", params).await
+    }
+
+    #[tool(
+        name = "get_prefab_info",
+        description = "Inspect a prefab asset or scene prefab instance. Returns prefabAssetPath, prefabAssetType, isInstance, hasOverrides, and an overrides list with propertyPath/instanceValue/prefabValue per entry. Pass target as an asset path (\"Assets/…\") or scene GameObject name; target_type is auto-detected if omitted."
+    )]
+    async fn get_prefab_info(
+        &self,
+        Parameters(args): Parameters<GetPrefabInfoArgs>,
+    ) -> Result<CallToolResult, McpError> {
+        let params = serde_json::to_value(&args)
+            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
+        self.call_bridge("get_prefab_info", params).await
+    }
+
+    #[tool(
+        name = "unpack_prefab",
+        description = "Unpack a scene prefab instance, severing its link to the prefab asset. mode \"outermost\" (default) leaves nested prefabs intact; \"completely\" unpacks all nesting levels. Registers undo. Returns {gameObject, mode, success}."
+    )]
+    async fn unpack_prefab(
+        &self,
+        Parameters(args): Parameters<UnpackPrefabArgs>,
+    ) -> Result<CallToolResult, McpError> {
+        let params = serde_json::to_value(&args)
+            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
+        self.call_bridge("unpack_prefab", params).await
+    }
+
+    #[tool(
+        name = "apply_prefab_overrides",
+        description = "Apply all overrides from a scene prefab instance back to the source prefab asset on disk. Requires the GameObject to be a prefab instance. Registers undo. Returns {gameObject, appliedToPath, success}."
+    )]
+    async fn apply_prefab_overrides(
+        &self,
+        Parameters(args): Parameters<ApplyPrefabOverridesArgs>,
+    ) -> Result<CallToolResult, McpError> {
+        let params = serde_json::to_value(&args)
+            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
+        self.call_bridge("apply_prefab_overrides", params).await
+    }
+
+    #[tool(
+        name = "revert_prefab_overrides",
+        description = "Revert all overrides on a scene prefab instance, restoring it to match the source prefab asset. Requires the GameObject to be a prefab instance. Registers undo. Returns {gameObject, success}."
+    )]
+    async fn revert_prefab_overrides(
+        &self,
+        Parameters(args): Parameters<RevertPrefabOverridesArgs>,
+    ) -> Result<CallToolResult, McpError> {
+        let params = serde_json::to_value(&args)
+            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
+        self.call_bridge("revert_prefab_overrides", params).await
     }
 
     #[tool(
