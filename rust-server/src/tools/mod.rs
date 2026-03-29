@@ -1,6 +1,7 @@
 pub mod asset;
 pub mod component;
 pub mod console;
+pub mod editor;
 pub mod gameobject;
 pub mod hierarchy;
 pub mod hierarchy_ops;
@@ -16,6 +17,9 @@ pub use asset::{
 };
 pub use component::{AddComponentArgs, RemoveComponentArgs, SetPropertyArgs};
 pub use console::LogToConsoleArgs;
+pub use editor::{
+    ClearConsoleArgs, ExecuteMenuItemArgs, GetConsoleLogsArgs, GetEditorStateArgs, SetPlayModeArgs,
+};
 pub use gameobject::CreateGameObjectArgs;
 pub use hierarchy::GetHierarchyArgs;
 pub use hierarchy_ops::{DeleteGameObjectArgs, DuplicateGameObjectArgs, ReparentGameObjectArgs};

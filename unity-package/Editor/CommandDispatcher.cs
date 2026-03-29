@@ -88,6 +88,12 @@ namespace Patina.Editor
             RegisterHandler("set_material_property", new SetMaterialPropertyHandler());
             RegisterHandler("get_material_properties", new GetMaterialPropertiesHandler());
             RegisterHandler("assign_material", new AssignMaterialHandler());
+            // Issue #25 — Editor state and control
+            RegisterHandler("get_editor_state", new GetEditorStateHandler());
+            RegisterHandler("set_play_mode", new SetPlayModeHandler());
+            RegisterHandler("get_console_logs", new GetConsoleLogsHandler());
+            RegisterHandler("execute_menu_item", new ExecuteMenuItemHandler());
+            RegisterHandler("clear_console", new ClearConsoleHandler());
         }
 
         public static int HandlerCount
