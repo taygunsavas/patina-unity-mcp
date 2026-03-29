@@ -13,9 +13,12 @@ namespace Patina.Editor.Commands
             string propertyName = parameters?["property_name"]?.Value<string>();
             JToken value = parameters?["value"];
 
-            if (string.IsNullOrEmpty(materialPath)) return Error("material_path is required");
-            if (string.IsNullOrEmpty(propertyName)) return Error("property_name is required");
-            if (value == null) return Error("value is required");
+            if (string.IsNullOrEmpty(materialPath))
+                throw new System.ArgumentException("material_path is required");
+            if (string.IsNullOrEmpty(propertyName))
+                throw new System.ArgumentException("property_name is required");
+            if (value == null)
+                throw new System.ArgumentException("value is required");
 
             string capturedPath = materialPath;
             string capturedProp = propertyName;
@@ -25,10 +28,10 @@ namespace Patina.Editor.Commands
             {
                 var material = AssetDatabase.LoadAssetAtPath<Material>(capturedPath);
                 if (material == null)
-                    return Error($"Material not found at: {capturedPath}");
+                    throw new System.InvalidOperationException($"Material not found at: {capturedPath}");
 
                 if (!material.HasProperty(capturedProp))
-                    return Error($"Property '{capturedProp}' not found on shader '{material.shader.name}'");
+                    throw new System.InvalidOperationException($"Property '{capturedProp}' not found on shader '{material.shader.name}'");
 
                 if (capturedValue.Type == JTokenType.Float || capturedValue.Type == JTokenType.Integer)
                 {
@@ -41,21 +44,26 @@ namespace Patina.Editor.Commands
                 else if (capturedValue.Type == JTokenType.Array)
                 {
                     var arr = (JArray)capturedValue;
-                    if (arr.Count >= 4)
+                    if (arr.Count < 3)
+                        throw new System.ArgumentException("Array value must have at least 3 elements");
+
+                    var shader = material.shader;
+                    int propIndex = ShaderUtil.FindPropertyIndex(shader, capturedProp);
+                    var propType = ShaderUtil.GetPropertyType(shader, propIndex);
+
+                    float Get(int i, float def = 0f) => i < arr.Count ? arr[i].Value<float>() : def;
+
+                    if (propType == ShaderUtil.ShaderPropertyType.Color)
                     {
-                        material.SetColor(capturedProp, new Color(
-                            arr[0].Value<float>(), arr[1].Value<float>(),
-                            arr[2].Value<float>(), arr[3].Value<float>()));
+                        material.SetColor(capturedProp, new Color(Get(0), Get(1), Get(2), Get(3, 1f)));
                     }
-                    else if (arr.Count >= 3)
+                    else if (propType == ShaderUtil.ShaderPropertyType.Vector)
                     {
-                        material.SetVector(capturedProp, new Vector4(
-                            arr[0].Value<float>(), arr[1].Value<float>(),
-                            arr[2].Value<float>(), 0f));
+                        material.SetVector(capturedProp, new Vector4(Get(0), Get(1), Get(2), Get(3)));
                     }
                     else
                     {
-                        return Error("Array value must have at least 3 elements");
+                        throw new System.ArgumentException($"Array value is not supported for shader property type '{propType}'");
                     }
                 }
                 else if (capturedValue.Type == JTokenType.String)
@@ -63,12 +71,12 @@ namespace Patina.Editor.Commands
                     string texPath = capturedValue.Value<string>();
                     var texture = AssetDatabase.LoadAssetAtPath<Texture>(texPath);
                     if (texture == null)
-                        return Error($"Texture not found at: {texPath}");
+                        throw new System.InvalidOperationException($"Texture not found at: {texPath}");
                     material.SetTexture(capturedProp, texture);
                 }
                 else
                 {
-                    return Error($"Unsupported value type: {capturedValue.Type}");
+                    throw new System.ArgumentException($"Unsupported value type: {capturedValue.Type}");
                 }
 
                 EditorUtility.SetDirty(material);
@@ -82,8 +90,5 @@ namespace Patina.Editor.Commands
                 };
             });
         }
-
-        private static JObject Error(string message) =>
-            new JObject { ["error"] = message, ["success"] = false };
     }
 }

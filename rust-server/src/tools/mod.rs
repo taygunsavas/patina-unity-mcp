@@ -23,12 +23,12 @@ pub use inspection::{
     FindGameObjectsByComponentArgs, FindGameObjectsByLayerArgs, FindGameObjectsByTagArgs,
     GetGameObjectInfoArgs,
 };
+pub use material::{
+    AssignMaterialArgs, CreateMaterialArgs, GetMaterialPropertiesArgs, SetMaterialPropertyArgs,
+};
 pub use prefab::{CreatePrefabArgs, InstantiatePrefabArgs};
 pub use scene::{
     GetBuildSettingsArgs, GetSceneInfoArgs, NewSceneArgs, OpenSceneArgs, SaveSceneArgs,
     SetBuildScenesArgs,
-};
-pub use material::{
-    AssignMaterialArgs, CreateMaterialArgs, GetMaterialPropertiesArgs, SetMaterialPropertyArgs,
 };
 pub use script::CreateScriptArgs;

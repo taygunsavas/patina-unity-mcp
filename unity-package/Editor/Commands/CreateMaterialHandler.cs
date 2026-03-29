@@ -14,9 +14,9 @@ namespace Patina.Editor.Commands
             string shaderName = parameters?["shader_name"]?.Value<string>() ?? "Universal Render Pipeline/Lit";
 
             if (string.IsNullOrEmpty(materialName))
-                return Error("material_name is required");
+                throw new System.ArgumentException("material_name is required");
             if (string.IsNullOrEmpty(savePath))
-                return Error("save_path is required");
+                throw new System.ArgumentException("save_path is required");
 
             string capturedName = materialName;
             string capturedPath = savePath;
@@ -24,14 +24,23 @@ namespace Patina.Editor.Commands
 
             return await MainThreadQueue.EnqueueAsync(() =>
             {
+                if (!AssetDatabase.IsValidFolder(capturedPath))
+                    throw new System.ArgumentException($"save_path folder does not exist: {capturedPath}");
+
                 Shader shader = Shader.Find(capturedShader);
                 if (shader == null)
-                    return Error($"Shader not found: {capturedShader}");
+                    throw new System.InvalidOperationException($"Shader not found: {capturedShader}");
+
+                string assetPath = $"{capturedPath.TrimEnd('/')}/{capturedName}.mat";
+                if (AssetDatabase.LoadAssetAtPath<Material>(assetPath) != null)
+                    throw new System.InvalidOperationException($"Material already exists at: {assetPath}");
 
                 var material = new Material(shader);
-                string assetPath = $"{capturedPath.TrimEnd('/')}/{capturedName}.mat";
                 AssetDatabase.CreateAsset(material, assetPath);
                 AssetDatabase.SaveAssets();
+
+                if (AssetDatabase.LoadAssetAtPath<Material>(assetPath) == null)
+                    throw new System.InvalidOperationException($"AssetDatabase.CreateAsset failed for path: {assetPath}");
 
                 return new JObject
                 {
@@ -41,8 +50,5 @@ namespace Patina.Editor.Commands
                 };
             });
         }
-
-        private static JObject Error(string message) =>
-            new JObject { ["error"] = message, ["success"] = false };
     }
 }

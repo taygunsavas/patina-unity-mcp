@@ -13,8 +13,12 @@ namespace Patina.Editor.Commands
             string materialPath = parameters?["material_path"]?.Value<string>();
             int materialIndex = parameters?["material_index"]?.Value<int>() ?? 0;
 
-            if (string.IsNullOrEmpty(gameObjectName)) return Error("game_object_name is required");
-            if (string.IsNullOrEmpty(materialPath)) return Error("material_path is required");
+            if (string.IsNullOrEmpty(gameObjectName))
+                throw new System.ArgumentException("game_object_name is required");
+            if (string.IsNullOrEmpty(materialPath))
+                throw new System.ArgumentException("material_path is required");
+            if (materialIndex < 0)
+                throw new System.ArgumentException("material_index must be >= 0");
 
             string capturedGoName = gameObjectName;
             string capturedMatPath = materialPath;
@@ -24,15 +28,15 @@ namespace Patina.Editor.Commands
             {
                 var go = GameObject.Find(capturedGoName);
                 if (go == null)
-                    return Error($"GameObject not found: {capturedGoName}");
+                    throw new System.InvalidOperationException($"GameObject not found: {capturedGoName}");
 
                 var renderer = go.GetComponent<Renderer>();
                 if (renderer == null)
-                    return Error($"GameObject '{capturedGoName}' has no Renderer component");
+                    throw new System.InvalidOperationException($"GameObject '{capturedGoName}' has no Renderer component");
 
                 var material = AssetDatabase.LoadAssetAtPath<Material>(capturedMatPath);
                 if (material == null)
-                    return Error($"Material not found at: {capturedMatPath}");
+                    throw new System.InvalidOperationException($"Material not found at: {capturedMatPath}");
 
                 Undo.RecordObject(renderer, "Assign Material");
 
@@ -57,8 +61,5 @@ namespace Patina.Editor.Commands
                 };
             });
         }
-
-        private static JObject Error(string message) =>
-            new JObject { ["error"] = message, ["success"] = false };
     }
 }

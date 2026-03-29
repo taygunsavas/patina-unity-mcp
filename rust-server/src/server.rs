@@ -8,8 +8,8 @@ use rmcp::{
 
 use crate::bridge::BridgeClient;
 use crate::tools::{
-    AddComponentArgs, AssignMaterialArgs, CreateFolderArgs, CreateGameObjectArgs, CreateMaterialArgs,
-    CreatePrefabArgs, CreateScriptArgs, DeleteAssetArgs, DeleteGameObjectArgs,
+    AddComponentArgs, AssignMaterialArgs, CreateFolderArgs, CreateGameObjectArgs,
+    CreateMaterialArgs, CreatePrefabArgs, CreateScriptArgs, DeleteAssetArgs, DeleteGameObjectArgs,
     DuplicateGameObjectArgs, FindAssetsByNameArgs, FindAssetsByTypeArgs,
     FindGameObjectsByComponentArgs, FindGameObjectsByLayerArgs, FindGameObjectsByTagArgs,
     GetAssetInfoArgs, GetBuildSettingsArgs, GetGameObjectInfoArgs, GetHierarchyArgs,

@@ -11,7 +11,7 @@ namespace Patina.Editor.Commands
         {
             string materialPath = parameters?["material_path"]?.Value<string>();
             if (string.IsNullOrEmpty(materialPath))
-                return Error("material_path is required");
+                throw new System.ArgumentException("material_path is required");
 
             string capturedPath = materialPath;
 
@@ -19,7 +19,7 @@ namespace Patina.Editor.Commands
             {
                 var material = AssetDatabase.LoadAssetAtPath<Material>(capturedPath);
                 if (material == null)
-                    return Error($"Material not found at: {capturedPath}");
+                    throw new System.InvalidOperationException($"Material not found at: {capturedPath}");
 
                 var shader = material.shader;
                 int propCount = ShaderUtil.GetPropertyCount(shader);
@@ -48,7 +48,7 @@ namespace Patina.Editor.Commands
                             break;
                         case ShaderUtil.ShaderPropertyType.TexEnv:
                             var tex = material.GetTexture(propName);
-                            propValue = tex != null ? AssetDatabase.GetAssetPath(tex) : null;
+                            propValue = tex != null ? (JToken)AssetDatabase.GetAssetPath(tex) : JValue.CreateNull();
                             typeName = "Texture";
                             break;
                         default:
@@ -72,8 +72,5 @@ namespace Patina.Editor.Commands
                 };
             });
         }
-
-        private static JObject Error(string message) =>
-            new JObject { ["error"] = message, ["success"] = false };
     }
 }
