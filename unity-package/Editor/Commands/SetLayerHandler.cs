@@ -38,13 +38,13 @@ namespace Patina.Editor.Commands
                 {
                     foreach (Transform t in go.GetComponentsInChildren<Transform>(true))
                     {
-                        Undo.RecordObject(t.gameObject, "Set Layer");
+                        try { Undo.RecordObject(t.gameObject, "Set Layer"); } catch { /* proceed without undo */ }
                         t.gameObject.layer = layerIndex;
                     }
                 }
                 else
                 {
-                    Undo.RecordObject(go, "Set Layer");
+                    try { Undo.RecordObject(go, "Set Layer"); } catch { /* proceed without undo */ }
                     go.layer = layerIndex;
                 }
 

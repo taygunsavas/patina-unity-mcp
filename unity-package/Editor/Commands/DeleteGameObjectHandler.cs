@@ -25,7 +25,14 @@ namespace Patina.Editor.Commands
 
                 string name = go.name;
                 int instanceId = go.GetInstanceID();
-                Undo.DestroyObjectImmediate(go);
+                try
+                {
+                    Undo.DestroyObjectImmediate(go);
+                }
+                catch
+                {
+                    UnityEngine.Object.DestroyImmediate(go);
+                }
 
                 return new JObject
                 {

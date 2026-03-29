@@ -84,21 +84,33 @@ namespace Patina.Editor.Commands
         private static JObject SerializeProperties(Component comp)
         {
             var props = new JObject();
-            try
+            SerializedObject so;
+            try { so = new SerializedObject(comp); }
+            catch (Exception) { return props; }
+
+            SerializedProperty sp;
+            try { sp = so.GetIterator(); }
+            catch (Exception) { return props; }
+
+            bool enter = true;
+            while (true)
             {
-                var so = new SerializedObject(comp);
-                SerializedProperty sp = so.GetIterator();
-                bool enter = true;
-                while (sp.Next(enter))
+                bool hasNext;
+                try { hasNext = sp.Next(enter); }
+                catch (Exception) { break; }
+                if (!hasNext) break;
+
+                try
                 {
                     JToken val = ToJson(sp);
                     if (val != null)
                         props[sp.propertyPath] = val;
-                    // Decide whether to descend into THIS property's children
-                    enter = sp.depth < 3 && !(sp.isArray && sp.arraySize > 32);
                 }
+                catch (Exception) { /* skip this property */ }
+
+                try { enter = sp.depth < 3 && !(sp.isArray && sp.arraySize > 32); }
+                catch (Exception) { enter = false; }
             }
-            catch (Exception) { /* skip unserializable components */ }
             return props;
         }
 

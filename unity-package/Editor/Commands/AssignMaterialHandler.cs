@@ -38,7 +38,7 @@ namespace Patina.Editor.Commands
                 if (material == null)
                     throw new System.InvalidOperationException($"Material not found at: {capturedMatPath}");
 
-                Undo.RecordObject(renderer, "Assign Material");
+                try { Undo.RecordObject(renderer, "Assign Material"); } catch { /* proceed without undo */ }
 
                 var mats = renderer.sharedMaterials;
                 if (capturedIndex >= mats.Length)
