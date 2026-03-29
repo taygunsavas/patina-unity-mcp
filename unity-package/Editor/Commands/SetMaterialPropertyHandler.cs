@@ -48,7 +48,17 @@ namespace Patina.Editor.Commands
                         throw new System.ArgumentException("Array value must have at least 3 elements");
 
                     var shader = material.shader;
-                    int propIndex = ShaderUtil.FindPropertyIndex(shader, capturedProp);
+                    int propIndex = -1;
+                    for (int pi = 0; pi < ShaderUtil.GetPropertyCount(shader); pi++)
+                    {
+                        if (ShaderUtil.GetPropertyName(shader, pi) == capturedProp)
+                        {
+                            propIndex = pi;
+                            break;
+                        }
+                    }
+                    if (propIndex < 0)
+                        throw new System.InvalidOperationException($"Property '{capturedProp}' not found on shader '{shader.name}'");
                     var propType = ShaderUtil.GetPropertyType(shader, propIndex);
 
                     float Get(int i, float def = 0f) => i < arr.Count ? arr[i].Value<float>() : def;
