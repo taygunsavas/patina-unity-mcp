@@ -8,12 +8,13 @@ use rmcp::{
 
 use crate::bridge::BridgeClient;
 use crate::tools::{
-    AddComponentArgs, CreateGameObjectArgs, CreatePrefabArgs, DeleteGameObjectArgs,
-    DuplicateGameObjectArgs, FindAssetsByNameArgs, FindAssetsByTypeArgs, FindGameObjectsByComponentArgs,
-    FindGameObjectsByLayerArgs, FindGameObjectsByTagArgs, GetBuildSettingsArgs, GetGameObjectInfoArgs,
-    GetHierarchyArgs, GetSceneInfoArgs, InstantiatePrefabArgs, LogToConsoleArgs, NewSceneArgs,
-    OpenSceneArgs, RemoveComponentArgs, ReparentGameObjectArgs, SaveSceneArgs, SetBuildScenesArgs,
-    SetPropertyArgs,
+    AddComponentArgs, CreateFolderArgs, CreateGameObjectArgs, CreatePrefabArgs, DeleteAssetArgs,
+    DeleteGameObjectArgs, DuplicateGameObjectArgs, FindAssetsByNameArgs, FindAssetsByTypeArgs,
+    FindGameObjectsByComponentArgs, FindGameObjectsByLayerArgs, FindGameObjectsByTagArgs,
+    GetAssetInfoArgs, GetBuildSettingsArgs, GetGameObjectInfoArgs, GetHierarchyArgs, GetSceneInfoArgs,
+    InstantiatePrefabArgs, LogToConsoleArgs, MoveAssetArgs, NewSceneArgs, OpenSceneArgs,
+    RefreshAssetDatabaseArgs, RemoveComponentArgs, RenameAssetArgs, ReparentGameObjectArgs,
+    SaveSceneArgs, SetAssetLabelsArgs, SetBuildScenesArgs, SetPropertyArgs,
 };
 
 #[derive(Clone)]
@@ -247,6 +248,99 @@ impl UnityMcpServer {
         let params = serde_json::to_value(&args)
             .map_err(|e| McpError::internal_error(e.to_string(), None))?;
         self.call_bridge("find_assets_by_name", params).await
+    }
+
+    // === Phase 5 tools — Asset database operations ===
+
+    #[tool(
+        name = "create_folder",
+        description = "Create a new folder in the Asset Database. Returns {path, guid, success}."
+    )]
+    async fn create_folder(
+        &self,
+        Parameters(args): Parameters<CreateFolderArgs>,
+    ) -> Result<CallToolResult, McpError> {
+        let params = serde_json::to_value(&args)
+            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
+        self.call_bridge("create_folder", params).await
+    }
+
+    #[tool(
+        name = "move_asset",
+        description = "Move an asset to a new project-relative path. Destination folder must already exist. Returns {sourcePath, destinationPath, success}."
+    )]
+    async fn move_asset(
+        &self,
+        Parameters(args): Parameters<MoveAssetArgs>,
+    ) -> Result<CallToolResult, McpError> {
+        let params = serde_json::to_value(&args)
+            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
+        self.call_bridge("move_asset", params).await
+    }
+
+    #[tool(
+        name = "rename_asset",
+        description = "Rename an asset in-place (no extension in new_name). Returns {oldPath, newPath, success}."
+    )]
+    async fn rename_asset(
+        &self,
+        Parameters(args): Parameters<RenameAssetArgs>,
+    ) -> Result<CallToolResult, McpError> {
+        let params = serde_json::to_value(&args)
+            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
+        self.call_bridge("rename_asset", params).await
+    }
+
+    #[tool(
+        name = "delete_asset",
+        description = "Delete an asset at the given project-relative path. Returns error for non-existent paths. Returns {deletedPath, success}."
+    )]
+    async fn delete_asset(
+        &self,
+        Parameters(args): Parameters<DeleteAssetArgs>,
+    ) -> Result<CallToolResult, McpError> {
+        let params = serde_json::to_value(&args)
+            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
+        self.call_bridge("delete_asset", params).await
+    }
+
+    #[tool(
+        name = "get_asset_info",
+        description = "Return metadata for an asset at a project-relative path. Returns {path, guid, assetType, fileSize, labels, importer, importerSettings} where importerSettings contains scalar importer property values (int, float, bool, string)."
+    )]
+    async fn get_asset_info(
+        &self,
+        Parameters(args): Parameters<GetAssetInfoArgs>,
+    ) -> Result<CallToolResult, McpError> {
+        let params = serde_json::to_value(&args)
+            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
+        self.call_bridge("get_asset_info", params).await
+    }
+
+    #[tool(
+        name = "refresh_asset_database",
+        description = "Trigger AssetDatabase.Refresh. import_options: \"default\" (incremental) or \"force_update\" (reimport all). Returns {success}."
+    )]
+    async fn refresh_asset_database(
+        &self,
+        Parameters(args): Parameters<RefreshAssetDatabaseArgs>,
+    ) -> Result<CallToolResult, McpError> {
+        let params = serde_json::to_value(&args)
+            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
+        self.call_bridge("refresh_asset_database", params).await
+    }
+
+    #[tool(
+        name = "set_asset_labels",
+        description = "Replace the label list on an asset. Call get_asset_info first to inspect current labels. Returns {path, labels, success}."
+    )]
+    async fn set_asset_labels(
+        &self,
+        Parameters(args): Parameters<SetAssetLabelsArgs>,
+    ) -> Result<CallToolResult, McpError> {
+        let params = serde_json::to_value(&args)
+            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
+        self.call_bridge("set_asset_labels", params).await
     }
 
     // === Phase 4 tools — Inspection and spatial search ===

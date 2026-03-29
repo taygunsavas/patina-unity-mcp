@@ -8,7 +8,10 @@ pub mod inspection;
 pub mod prefab;
 pub mod scene;
 
-pub use asset::{FindAssetsByNameArgs, FindAssetsByTypeArgs};
+pub use asset::{
+    CreateFolderArgs, DeleteAssetArgs, FindAssetsByNameArgs, FindAssetsByTypeArgs,
+    GetAssetInfoArgs, MoveAssetArgs, RefreshAssetDatabaseArgs, RenameAssetArgs, SetAssetLabelsArgs,
+};
 pub use component::{AddComponentArgs, RemoveComponentArgs, SetPropertyArgs};
 pub use console::LogToConsoleArgs;
 pub use gameobject::CreateGameObjectArgs;

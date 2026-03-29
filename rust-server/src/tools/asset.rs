@@ -20,3 +20,53 @@ pub struct FindAssetsByNameArgs {
     /// Maximum number of results to return. Defaults to 50.
     pub max_results: Option<u32>,
 }
+
+#[derive(Debug, Deserialize, Serialize, JsonSchema)]
+pub struct CreateFolderArgs {
+    /// Parent folder path (e.g. "Assets/Textures"). Must start with "Assets".
+    pub parent_path: String,
+    /// Name of the new folder (no slashes).
+    pub folder_name: String,
+}
+
+#[derive(Debug, Deserialize, Serialize, JsonSchema)]
+pub struct MoveAssetArgs {
+    /// Project-relative source path (e.g. "Assets/Old/Foo.mat").
+    pub source_path: String,
+    /// Project-relative destination path including filename (e.g. "Assets/New/Foo.mat").
+    pub destination_path: String,
+}
+
+#[derive(Debug, Deserialize, Serialize, JsonSchema)]
+pub struct RenameAssetArgs {
+    /// Project-relative path of the asset to rename (e.g. "Assets/Foo.mat").
+    pub asset_path: String,
+    /// New base name without extension (e.g. "Bar").
+    pub new_name: String,
+}
+
+#[derive(Debug, Deserialize, Serialize, JsonSchema)]
+pub struct DeleteAssetArgs {
+    /// Project-relative path of the asset to delete (e.g. "Assets/Foo.mat").
+    pub asset_path: String,
+}
+
+#[derive(Debug, Deserialize, Serialize, JsonSchema)]
+pub struct GetAssetInfoArgs {
+    /// Project-relative path of the asset (e.g. "Assets/Textures/Hero.png").
+    pub asset_path: String,
+}
+
+#[derive(Debug, Deserialize, Serialize, JsonSchema)]
+pub struct RefreshAssetDatabaseArgs {
+    /// Import options: "default" (incremental) or "force_update" (reimport all). Defaults to "default".
+    pub import_options: Option<String>,
+}
+
+#[derive(Debug, Deserialize, Serialize, JsonSchema)]
+pub struct SetAssetLabelsArgs {
+    /// Project-relative path of the asset (e.g. "Assets/Foo.mat").
+    pub asset_path: String,
+    /// Labels to assign. Replaces the existing label list.
+    pub labels: Vec<String>,
+}
