@@ -8,15 +8,16 @@ use rmcp::{
 
 use crate::bridge::BridgeClient;
 use crate::tools::{
-    AddComponentArgs, AssignMaterialArgs, CreateFolderArgs, CreateGameObjectArgs,
+    AddComponentArgs, AssignMaterialArgs, ClearConsoleArgs, CreateFolderArgs, CreateGameObjectArgs,
     CreateMaterialArgs, CreatePrefabArgs, CreateScriptArgs, DeleteAssetArgs, DeleteGameObjectArgs,
-    DuplicateGameObjectArgs, FindAssetsByNameArgs, FindAssetsByTypeArgs,
+    DuplicateGameObjectArgs, ExecuteMenuItemArgs, FindAssetsByNameArgs, FindAssetsByTypeArgs,
     FindGameObjectsByComponentArgs, FindGameObjectsByLayerArgs, FindGameObjectsByTagArgs,
-    GetAssetInfoArgs, GetBuildSettingsArgs, GetGameObjectInfoArgs, GetHierarchyArgs,
-    GetMaterialPropertiesArgs, GetSceneInfoArgs, InstantiatePrefabArgs, LogToConsoleArgs,
-    MoveAssetArgs, NewSceneArgs, OpenSceneArgs, RefreshAssetDatabaseArgs, RemoveComponentArgs,
-    RenameAssetArgs, ReparentGameObjectArgs, SaveSceneArgs, SetAssetLabelsArgs, SetBuildScenesArgs,
-    SetMaterialPropertyArgs, SetPropertyArgs,
+    GetAssetInfoArgs, GetBuildSettingsArgs, GetConsoleLogsArgs, GetEditorStateArgs,
+    GetGameObjectInfoArgs, GetHierarchyArgs, GetMaterialPropertiesArgs, GetSceneInfoArgs,
+    InstantiatePrefabArgs, LogToConsoleArgs, MoveAssetArgs, NewSceneArgs, OpenSceneArgs,
+    RefreshAssetDatabaseArgs, RemoveComponentArgs, RenameAssetArgs, ReparentGameObjectArgs,
+    SaveSceneArgs, SetAssetLabelsArgs, SetBuildScenesArgs, SetMaterialPropertyArgs,
+    SetPlayModeArgs, SetPropertyArgs,
 };
 
 #[derive(Clone)]
@@ -530,6 +531,73 @@ impl UnityMcpServer {
         let params = serde_json::to_value(&args)
             .map_err(|e| McpError::internal_error(e.to_string(), None))?;
         self.call_bridge("assign_material", params).await
+    }
+
+    // === Phase 3 tools — editor state and control ===
+
+    #[tool(
+        name = "get_editor_state",
+        description = "Return the current Unity Editor state. Call this before any mutation to guard against compile-in-progress errors. Returns {isCompiling, isPlaying, isPaused, isUpdating, hasCompileErrors, unityVersion, projectPath}."
+    )]
+    async fn get_editor_state(
+        &self,
+        Parameters(args): Parameters<GetEditorStateArgs>,
+    ) -> Result<CallToolResult, McpError> {
+        let params = serde_json::to_value(&args)
+            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
+        self.call_bridge("get_editor_state", params).await
+    }
+
+    #[tool(
+        name = "set_play_mode",
+        description = "Enter, exit, pause, unpause, or step play mode. mode accepts: enter, exit, pause, unpause, step. Note: enter is asynchronous — returns after setting the flag, not after play mode is fully active. Returns {requestedMode, success}."
+    )]
+    async fn set_play_mode(
+        &self,
+        Parameters(args): Parameters<SetPlayModeArgs>,
+    ) -> Result<CallToolResult, McpError> {
+        let params = serde_json::to_value(&args)
+            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
+        self.call_bridge("set_play_mode", params).await
+    }
+
+    #[tool(
+        name = "get_console_logs",
+        description = "Read buffered Unity console log entries. filter accepts: all, errors, warnings, logs (default all). max_results caps the returned count (default 50). Returns {totalReturned, entries:[{type,message,stackTrace}]}."
+    )]
+    async fn get_console_logs(
+        &self,
+        Parameters(args): Parameters<GetConsoleLogsArgs>,
+    ) -> Result<CallToolResult, McpError> {
+        let params = serde_json::to_value(&args)
+            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
+        self.call_bridge("get_console_logs", params).await
+    }
+
+    #[tool(
+        name = "execute_menu_item",
+        description = "Execute a Unity Editor menu item by its full path, e.g. Assets/Refresh. Returns {menuPath, success} where success is false if the item does not exist or is disabled."
+    )]
+    async fn execute_menu_item(
+        &self,
+        Parameters(args): Parameters<ExecuteMenuItemArgs>,
+    ) -> Result<CallToolResult, McpError> {
+        let params = serde_json::to_value(&args)
+            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
+        self.call_bridge("execute_menu_item", params).await
+    }
+
+    #[tool(
+        name = "clear_console",
+        description = "Clear all Unity Editor console log entries. Returns {success}."
+    )]
+    async fn clear_console(
+        &self,
+        Parameters(args): Parameters<ClearConsoleArgs>,
+    ) -> Result<CallToolResult, McpError> {
+        let params = serde_json::to_value(&args)
+            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
+        self.call_bridge("clear_console", params).await
     }
 }
 
