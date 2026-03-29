@@ -5,6 +5,7 @@ pub mod gameobject;
 pub mod hierarchy;
 pub mod hierarchy_ops;
 pub mod inspection;
+pub mod material;
 pub mod prefab;
 pub mod scene;
 pub mod script;
@@ -21,6 +22,9 @@ pub use hierarchy_ops::{DeleteGameObjectArgs, DuplicateGameObjectArgs, ReparentG
 pub use inspection::{
     FindGameObjectsByComponentArgs, FindGameObjectsByLayerArgs, FindGameObjectsByTagArgs,
     GetGameObjectInfoArgs,
+};
+pub use material::{
+    AssignMaterialArgs, CreateMaterialArgs, GetMaterialPropertiesArgs, SetMaterialPropertyArgs,
 };
 pub use prefab::{CreatePrefabArgs, InstantiatePrefabArgs};
 pub use scene::{

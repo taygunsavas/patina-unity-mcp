@@ -8,13 +8,15 @@ use rmcp::{
 
 use crate::bridge::BridgeClient;
 use crate::tools::{
-    AddComponentArgs, CreateFolderArgs, CreateGameObjectArgs, CreatePrefabArgs, CreateScriptArgs,
-    DeleteAssetArgs, DeleteGameObjectArgs, DuplicateGameObjectArgs, FindAssetsByNameArgs,
-    FindAssetsByTypeArgs, FindGameObjectsByComponentArgs, FindGameObjectsByLayerArgs,
-    FindGameObjectsByTagArgs, GetAssetInfoArgs, GetBuildSettingsArgs, GetGameObjectInfoArgs,
-    GetHierarchyArgs, GetSceneInfoArgs, InstantiatePrefabArgs, LogToConsoleArgs, MoveAssetArgs,
-    NewSceneArgs, OpenSceneArgs, RefreshAssetDatabaseArgs, RemoveComponentArgs, RenameAssetArgs,
-    ReparentGameObjectArgs, SaveSceneArgs, SetAssetLabelsArgs, SetBuildScenesArgs, SetPropertyArgs,
+    AddComponentArgs, AssignMaterialArgs, CreateFolderArgs, CreateGameObjectArgs,
+    CreateMaterialArgs, CreatePrefabArgs, CreateScriptArgs, DeleteAssetArgs, DeleteGameObjectArgs,
+    DuplicateGameObjectArgs, FindAssetsByNameArgs, FindAssetsByTypeArgs,
+    FindGameObjectsByComponentArgs, FindGameObjectsByLayerArgs, FindGameObjectsByTagArgs,
+    GetAssetInfoArgs, GetBuildSettingsArgs, GetGameObjectInfoArgs, GetHierarchyArgs,
+    GetMaterialPropertiesArgs, GetSceneInfoArgs, InstantiatePrefabArgs, LogToConsoleArgs,
+    MoveAssetArgs, NewSceneArgs, OpenSceneArgs, RefreshAssetDatabaseArgs, RemoveComponentArgs,
+    RenameAssetArgs, ReparentGameObjectArgs, SaveSceneArgs, SetAssetLabelsArgs, SetBuildScenesArgs,
+    SetMaterialPropertyArgs, SetPropertyArgs,
 };
 
 #[derive(Clone)]
@@ -476,6 +478,58 @@ impl UnityMcpServer {
         let params = serde_json::to_value(&args)
             .map_err(|e| McpError::internal_error(e.to_string(), None))?;
         self.call_bridge("create_script", params).await
+    }
+
+    #[tool(
+        name = "create_material",
+        description = "Create a new Material asset in the Asset Database with an optional shader. Defaults to Universal Render Pipeline/Lit. Returns {path, shader, success}."
+    )]
+    async fn create_material(
+        &self,
+        Parameters(args): Parameters<CreateMaterialArgs>,
+    ) -> Result<CallToolResult, McpError> {
+        let params = serde_json::to_value(&args)
+            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
+        self.call_bridge("create_material", params).await
+    }
+
+    #[tool(
+        name = "set_material_property",
+        description = "Set a shader property on a Material asset. Dispatches by value type: float, bool, [r,g,b,a] color, [x,y,z,w] vector, or texture path string. Validates property existence before writing. Returns {materialPath, property, success}."
+    )]
+    async fn set_material_property(
+        &self,
+        Parameters(args): Parameters<SetMaterialPropertyArgs>,
+    ) -> Result<CallToolResult, McpError> {
+        let params = serde_json::to_value(&args)
+            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
+        self.call_bridge("set_material_property", params).await
+    }
+
+    #[tool(
+        name = "get_material_properties",
+        description = "Read all exposed shader properties from a Material asset including names, types, and current values. Uses ShaderUtil Editor API. Returns {materialPath, shader, properties:[{name, type, value}]}."
+    )]
+    async fn get_material_properties(
+        &self,
+        Parameters(args): Parameters<GetMaterialPropertiesArgs>,
+    ) -> Result<CallToolResult, McpError> {
+        let params = serde_json::to_value(&args)
+            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
+        self.call_bridge("get_material_properties", params).await
+    }
+
+    #[tool(
+        name = "assign_material",
+        description = "Assign a Material asset to a specific slot on a GameObject's Renderer. Use material_index for multi-material meshes; defaults to slot 0. Records undo. Returns {gameObject, materialPath, materialIndex, success}."
+    )]
+    async fn assign_material(
+        &self,
+        Parameters(args): Parameters<AssignMaterialArgs>,
+    ) -> Result<CallToolResult, McpError> {
+        let params = serde_json::to_value(&args)
+            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
+        self.call_bridge("assign_material", params).await
     }
 }
 

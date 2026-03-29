@@ -83,6 +83,11 @@ namespace Patina.Editor
             RegisterHandler("set_build_scenes", new SetBuildScenesHandler());
             // Sprint 4 — Scripting
             RegisterHandler("create_script", new CreateScriptHandler());
+            // Issue #24 — Material and shader authoring
+            RegisterHandler("create_material", new CreateMaterialHandler());
+            RegisterHandler("set_material_property", new SetMaterialPropertyHandler());
+            RegisterHandler("get_material_properties", new GetMaterialPropertiesHandler());
+            RegisterHandler("assign_material", new AssignMaterialHandler());
         }
 
         public static int HandlerCount
