@@ -1,5 +1,6 @@
 using Newtonsoft.Json.Linq;
 using System;
+using System.CodeDom.Compiler;
 using System.IO;
 using System.Text;
 using System.Threading.Tasks;
@@ -26,6 +27,12 @@ namespace Patina.Editor.Commands
             string namespaceName = parameters["namespace"]?.Value<string>();
             string content = parameters["content"]?.Value<string>();
 
+            if (scriptName.IndexOfAny(new[] { '/', '\\' }) >= 0 || scriptName.Contains(".."))
+                throw new ArgumentException("script_name cannot contain path separators or traversal sequences");
+
+            if (!System.CodeDom.Compiler.CodeGenerator.IsValidLanguageIndependentIdentifier(scriptName))
+                throw new ArgumentException("script_name must be a valid C# identifier (no spaces, special characters, or leading digits)");
+
             string capturedScript = scriptName;
             string capturedFolder = folderPath.TrimEnd('/');
             string capturedTemplate = template;
@@ -39,6 +46,9 @@ namespace Patina.Editor.Commands
 
                 string assetPath = capturedFolder + "/" + capturedScript + ".cs";
                 string fullPath = Path.GetFullPath(assetPath);
+
+                if (File.Exists(fullPath))
+                    throw new ArgumentException($"Script already exists: {assetPath}");
 
                 string fileContent = capturedContent ?? GenerateTemplate(capturedScript, capturedTemplate, capturedNamespace);
                 File.WriteAllText(fullPath, fileContent, new UTF8Encoding(encoderShouldEmitUTF8Identifier: false));
