@@ -8,16 +8,16 @@ use rmcp::{
 
 use crate::bridge::BridgeClient;
 use crate::tools::{
-    AddComponentArgs, AssignMaterialArgs, ClearConsoleArgs, CreateFolderArgs,
-    CreateGameObjectArgs, CreateMaterialArgs, CreatePrefabArgs, CreateScriptArgs, DeleteAssetArgs,
-    DeleteGameObjectArgs, DuplicateGameObjectArgs, ExecuteMenuItemArgs, FindAssetsByNameArgs,
-    FindAssetsByTypeArgs, FindGameObjectsByComponentArgs, FindGameObjectsByLayerArgs,
-    FindGameObjectsByTagArgs, GetAssetInfoArgs, GetBuildSettingsArgs, GetConsoleLogsArgs,
-    GetEditorStateArgs, GetGameObjectInfoArgs, GetHierarchyArgs, GetMaterialPropertiesArgs,
-    GetSceneInfoArgs, InstantiatePrefabArgs, LogToConsoleArgs, MoveAssetArgs, NewSceneArgs,
-    OpenSceneArgs, RefreshAssetDatabaseArgs, RemoveComponentArgs, RenameAssetArgs,
-    ReparentGameObjectArgs, SaveSceneArgs, SetAssetLabelsArgs, SetBuildScenesArgs,
-    SetMaterialPropertyArgs, SetPlayModeArgs, SetPropertyArgs,
+    AddComponentArgs, AssignMaterialArgs, ClearConsoleArgs, CreateFolderArgs, CreateGameObjectArgs,
+    CreateMaterialArgs, CreatePrefabArgs, CreateScriptArgs, DeleteAssetArgs, DeleteGameObjectArgs,
+    DuplicateGameObjectArgs, ExecuteMenuItemArgs, FindAssetsByNameArgs, FindAssetsByTypeArgs,
+    FindGameObjectsByComponentArgs, FindGameObjectsByLayerArgs, FindGameObjectsByTagArgs,
+    GetAssetInfoArgs, GetBuildSettingsArgs, GetConsoleLogsArgs, GetEditorStateArgs,
+    GetGameObjectInfoArgs, GetHierarchyArgs, GetMaterialPropertiesArgs, GetSceneInfoArgs,
+    InstantiatePrefabArgs, LogToConsoleArgs, MoveAssetArgs, NewSceneArgs, OpenSceneArgs,
+    RefreshAssetDatabaseArgs, RemoveComponentArgs, RenameAssetArgs, ReparentGameObjectArgs,
+    SaveSceneArgs, SetAssetLabelsArgs, SetBuildScenesArgs, SetMaterialPropertyArgs,
+    SetPlayModeArgs, SetPropertyArgs,
 };
 
 #[derive(Clone)]
