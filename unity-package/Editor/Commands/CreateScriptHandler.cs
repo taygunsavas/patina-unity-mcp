@@ -34,7 +34,7 @@ namespace Patina.Editor.Commands
                 throw new ArgumentException("script_name must be a valid C# identifier (no spaces, special characters, or leading digits)");
 
             string capturedScript = scriptName;
-            string capturedFolder = folderPath.TrimEnd('/');
+            string capturedFolder = folderPath.Replace('\\', '/').Trim().TrimEnd('/');
             string capturedTemplate = template;
             string capturedNamespace = namespaceName;
             string capturedContent = content;
@@ -89,7 +89,10 @@ namespace Patina.Editor.Commands
                     usings = null;
                     classBody = $"public interface {className}\n{{\n}}";
                     break;
-                default: // monobehaviour
+                case "monobehaviour":
+                default:
+                    if (template.ToLowerInvariant() != "monobehaviour")
+                        throw new ArgumentException($"Unknown template '{template}'. Valid values: monobehaviour, scriptableobject, editor_window, plain_class, interface");
                     usings = "using UnityEngine;";
                     classBody = $"public class {className} : MonoBehaviour\n{{\n}}";
                     break;
