@@ -81,6 +81,8 @@ namespace Patina.Editor
             RegisterHandler("new_scene", new NewSceneHandler());
             RegisterHandler("get_build_settings", new GetBuildSettingsHandler());
             RegisterHandler("set_build_scenes", new SetBuildScenesHandler());
+            // Sprint 4 — Scripting
+            RegisterHandler("create_script", new CreateScriptHandler());
         }
 
         public static int HandlerCount

@@ -7,6 +7,7 @@ pub mod hierarchy_ops;
 pub mod inspection;
 pub mod prefab;
 pub mod scene;
+pub mod script;
 
 pub use asset::{
     CreateFolderArgs, DeleteAssetArgs, FindAssetsByNameArgs, FindAssetsByTypeArgs,
@@ -26,3 +27,4 @@ pub use scene::{
     GetBuildSettingsArgs, GetSceneInfoArgs, NewSceneArgs, OpenSceneArgs, SaveSceneArgs,
     SetBuildScenesArgs,
 };
+pub use script::CreateScriptArgs;

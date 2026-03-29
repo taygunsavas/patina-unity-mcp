@@ -8,13 +8,13 @@ use rmcp::{
 
 use crate::bridge::BridgeClient;
 use crate::tools::{
-    AddComponentArgs, CreateFolderArgs, CreateGameObjectArgs, CreatePrefabArgs, DeleteAssetArgs,
-    DeleteGameObjectArgs, DuplicateGameObjectArgs, FindAssetsByNameArgs, FindAssetsByTypeArgs,
-    FindGameObjectsByComponentArgs, FindGameObjectsByLayerArgs, FindGameObjectsByTagArgs,
-    GetAssetInfoArgs, GetBuildSettingsArgs, GetGameObjectInfoArgs, GetHierarchyArgs, GetSceneInfoArgs,
-    InstantiatePrefabArgs, LogToConsoleArgs, MoveAssetArgs, NewSceneArgs, OpenSceneArgs,
-    RefreshAssetDatabaseArgs, RemoveComponentArgs, RenameAssetArgs, ReparentGameObjectArgs,
-    SaveSceneArgs, SetAssetLabelsArgs, SetBuildScenesArgs, SetPropertyArgs,
+    AddComponentArgs, CreateFolderArgs, CreateGameObjectArgs, CreatePrefabArgs, CreateScriptArgs,
+    DeleteAssetArgs, DeleteGameObjectArgs, DuplicateGameObjectArgs, FindAssetsByNameArgs,
+    FindAssetsByTypeArgs, FindGameObjectsByComponentArgs, FindGameObjectsByLayerArgs,
+    FindGameObjectsByTagArgs, GetAssetInfoArgs, GetBuildSettingsArgs, GetGameObjectInfoArgs,
+    GetHierarchyArgs, GetSceneInfoArgs, InstantiatePrefabArgs, LogToConsoleArgs, MoveAssetArgs,
+    NewSceneArgs, OpenSceneArgs, RefreshAssetDatabaseArgs, RemoveComponentArgs, RenameAssetArgs,
+    ReparentGameObjectArgs, SaveSceneArgs, SetAssetLabelsArgs, SetBuildScenesArgs, SetPropertyArgs,
 };
 
 #[derive(Clone)]
@@ -381,7 +381,8 @@ impl UnityMcpServer {
     ) -> Result<CallToolResult, McpError> {
         let params = serde_json::to_value(&args)
             .map_err(|e| McpError::internal_error(e.to_string(), None))?;
-        self.call_bridge("find_game_objects_by_component", params).await
+        self.call_bridge("find_game_objects_by_component", params)
+            .await
     }
 
     #[tool(
@@ -462,6 +463,19 @@ impl UnityMcpServer {
         let params = serde_json::to_value(&args)
             .map_err(|e| McpError::internal_error(e.to_string(), None))?;
         self.call_bridge("set_build_scenes", params).await
+    }
+
+    #[tool(
+        name = "create_script",
+        description = "Create a new C# script file in the Unity project. Supply a template (monobehaviour, scriptableobject, editor_window, plain_class, interface) or pass content for verbatim output. The folder_path must already exist. Returns {path, className, template, success}."
+    )]
+    async fn create_script(
+        &self,
+        Parameters(args): Parameters<CreateScriptArgs>,
+    ) -> Result<CallToolResult, McpError> {
+        let params = serde_json::to_value(&args)
+            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
+        self.call_bridge("create_script", params).await
     }
 }
 
