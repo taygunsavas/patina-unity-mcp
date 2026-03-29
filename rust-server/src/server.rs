@@ -381,7 +381,8 @@ impl UnityMcpServer {
     ) -> Result<CallToolResult, McpError> {
         let params = serde_json::to_value(&args)
             .map_err(|e| McpError::internal_error(e.to_string(), None))?;
-        self.call_bridge("find_game_objects_by_component", params).await
+        self.call_bridge("find_game_objects_by_component", params)
+            .await
     }
 
     #[tool(
