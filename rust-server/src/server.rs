@@ -814,7 +814,7 @@ impl UnityMcpServer {
 
     #[tool(
         name = "batch_set_properties",
-        description = "Apply up to 100 property/field mutations across multiple GameObjects in one call under a single Undo group. Partial failures are reported per-item without aborting the batch. Returns {success, results:[{gameObject, component, property, success, error?}]}."
+        description = "Apply up to 100 property/field mutations across multiple GameObjects in one call under a single Undo group. operations is an array of objects: [{\"game_object_name\":\"...\",\"component_type\":\"...\",\"property_name\":\"...\",\"value\":...}] — NOT an array of JSON strings. Partial failures are reported per-item without aborting the batch. Returns {success, results:[{gameObject, component, property, success, error?}]}."
     )]
     async fn batch_set_properties(
         &self,
@@ -840,7 +840,7 @@ impl UnityMcpServer {
 
     #[tool(
         name = "batch_set_transform",
-        description = "Apply position/rotation/scale overrides to multiple GameObjects in one call under a single Undo group. Omit any transform field to leave it unchanged. space=\"world\" (default) or \"local\". Returns {success, results:[{gameObject, success, error?}]}."
+        description = "Apply position/rotation/scale overrides to multiple GameObjects in one call under a single Undo group. operations is an array of objects: [{\"game_object_name\":\"...\",\"position\":[x,y,z],\"rotation_euler\":[x,y,z],\"scale\":[x,y,z]}] — NOT an array of JSON strings. Omit any transform field to leave it unchanged. space=\"world\" (default) or \"local\". Returns {success, results:[{gameObject, success, error?}]}."
     )]
     async fn batch_set_transform(
         &self,
