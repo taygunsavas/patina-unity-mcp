@@ -134,6 +134,17 @@ namespace Patina.Editor
             // STO-35 — Scene Validation & Health Report
             RegisterHandler("validate_scene", new ValidateSceneHandler());
             RegisterHandler("get_scene_stats", new GetSceneStatsHandler());
+            // STO-37 — ScriptableObject Data Tools
+            RegisterHandler("get_scriptable_object", new GetScriptableObjectHandler());
+            RegisterHandler("set_scriptable_object_field", new SetScriptableObjectFieldHandler());
+            // STO-38 — Test Runner Integration
+            RegisterHandler("run_tests", new RunTestsHandler());
+            RegisterHandler("get_test_results", new GetTestResultsHandler());
+            RegisterHandler("get_test_list", new GetTestListHandler());
+            // STO-39 — Animation System Access
+            RegisterHandler("get_animator_info", new GetAnimatorInfoHandler());
+            RegisterHandler("set_animator_parameter", new SetAnimatorParameterHandler());
+            RegisterHandler("list_animation_clips", new ListAnimationClipsHandler());
         }
 
         public static int HandlerCount

@@ -1,3 +1,4 @@
+pub mod animation;
 pub mod asset;
 pub mod batch;
 pub mod component;
@@ -15,10 +16,13 @@ pub mod query;
 pub mod scene;
 pub mod script;
 pub mod scripting_diag;
+pub mod scriptable_object;
 pub mod selection;
+pub mod test_runner;
 pub mod undo;
 pub mod validation;
 
+pub use animation::{GetAnimatorInfoArgs, ListAnimationClipsArgs, SetAnimatorParameterArgs};
 pub use asset::{
     CreateFolderArgs, DeleteAssetArgs, FindAssetsByNameArgs, FindAssetsByTypeArgs,
     GetAssetInfoArgs, MoveAssetArgs, RefreshAssetDatabaseArgs, RenameAssetArgs, SetAssetLabelsArgs,
@@ -59,5 +63,7 @@ pub use scripting_diag::{
     ForceRecompileArgs, GetAssemblyTypesArgs, GetCompilationErrorsArgs, GetScriptContentArgs,
 };
 pub use selection::{GetSelectionArgs, SetSelectionArgs};
+pub use scriptable_object::{GetScriptableObjectArgs, SetScriptableObjectFieldArgs};
+pub use test_runner::{GetTestListArgs, GetTestResultsArgs, RunTestsArgs};
 pub use undo::{BeginUndoGroupArgs, EndUndoGroupArgs, GetUndoStackArgs, RedoArgs, UndoArgs};
 pub use validation::{GetSceneStatsArgs, ValidateSceneArgs};

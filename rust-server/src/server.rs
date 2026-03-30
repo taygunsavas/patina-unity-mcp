@@ -23,6 +23,8 @@ use crate::tools::{
     RedoArgs, RefreshAssetDatabaseArgs, RemoveComponentArgs, RenameAssetArgs,
     ReparentGameObjectArgs, RevertPrefabOverridesArgs, SaveSceneArgs, SetActiveStateArgs,
     SetAssetLabelsArgs, SetBuildScenesArgs, SetBuildTargetArgs, GetScriptContentArgs,
+    GetAnimatorInfoArgs, GetScriptableObjectArgs, GetTestListArgs, GetTestResultsArgs,
+    ListAnimationClipsArgs, RunTestsArgs, SetAnimatorParameterArgs, SetScriptableObjectFieldArgs,
     SetLayerArgs, SetMaterialPropertyArgs, SetPlayModeArgs, SetPlayerSettingsArgs, SetPropertyArgs,
     SetSelectionArgs, SetTagArgs, SetTransformArgs, UndoArgs, UnpackPrefabArgs, ValidateSceneArgs,
 };
@@ -1024,6 +1026,115 @@ impl UnityMcpServer {
         let params = serde_json::to_value(&args)
             .map_err(|e| McpError::internal_error(e.to_string(), None))?;
         self.call_bridge("get_scene_stats", params).await
+    }
+    // === Sprint 5 — STO-37: ScriptableObject Data Tools ===
+
+    #[tool(
+        name = "get_scriptable_object",
+        description = "Read all serialized public and [SerializeField] fields from a ScriptableObject asset. Returns {assetPath, typeName, fields:{fieldName:value,...}}. Values are primitive types, arrays for Vector/Color, or @Type:Name references for UnityEngine.Object fields."
+    )]
+    async fn get_scriptable_object(
+        &self,
+        Parameters(args): Parameters<GetScriptableObjectArgs>,
+    ) -> Result<CallToolResult, McpError> {
+        let params = serde_json::to_value(&args)
+            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
+        self.call_bridge("get_scriptable_object", params).await
+    }
+
+    #[tool(
+        name = "set_scriptable_object_field",
+        description = "Set a single serialized field on a ScriptableObject asset by reflection. Supported field types: int, float, double, bool, string, enum, Vector2/3/4 ([x,y,z] array), Color ([r,g,b,a] array). Saves the asset immediately. Returns {assetPath, field, success}."
+    )]
+    async fn set_scriptable_object_field(
+        &self,
+        Parameters(args): Parameters<SetScriptableObjectFieldArgs>,
+    ) -> Result<CallToolResult, McpError> {
+        let params = serde_json::to_value(&args)
+            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
+        self.call_bridge("set_scriptable_object_field", params).await
+    }
+
+    // === Sprint 5 — STO-38: Test Runner Integration ===
+
+    #[tool(
+        name = "run_tests",
+        description = "Start a Unity Test Runner execution for EditMode or PlayMode tests. Fires tests asynchronously and returns immediately. After tests finish, call get_test_results to retrieve outcomes. Returns {started, mode, filter}."
+    )]
+    async fn run_tests(
+        &self,
+        Parameters(args): Parameters<RunTestsArgs>,
+    ) -> Result<CallToolResult, McpError> {
+        let params = serde_json::to_value(&args)
+            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
+        self.call_bridge("run_tests", params).await
+    }
+
+    #[tool(
+        name = "get_test_results",
+        description = "Return the results from the most recent run_tests call. Check running=true to know if tests are still executing. Returns {mode, total, passed, failed, skipped, running, results:[{name,fullName,status,durationSeconds,message}]}."
+    )]
+    async fn get_test_results(
+        &self,
+        Parameters(args): Parameters<GetTestResultsArgs>,
+    ) -> Result<CallToolResult, McpError> {
+        let params = serde_json::to_value(&args)
+            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
+        self.call_bridge("get_test_results", params).await
+    }
+
+    #[tool(
+        name = "get_test_list",
+        description = "List all available tests for the given mode without running them. Returns {mode, count, tests:[{name,fullName,category}]}. Use before run_tests to identify test names for the filter parameter."
+    )]
+    async fn get_test_list(
+        &self,
+        Parameters(args): Parameters<GetTestListArgs>,
+    ) -> Result<CallToolResult, McpError> {
+        let params = serde_json::to_value(&args)
+            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
+        self.call_bridge("get_test_list", params).await
+    }
+
+    // === Sprint 5 — STO-39: Animation System Access ===
+
+    #[tool(
+        name = "get_animator_info",
+        description = "Read Animator Controller parameters and layer/state info from a named GameObject's Animator. max_states caps states per layer (default 50). Returns {controllerPath, parameters:[{name,type,defaultValue}], layers:[{name,states:[{name,motion,transitions:[...]}]}]}."
+    )]
+    async fn get_animator_info(
+        &self,
+        Parameters(args): Parameters<GetAnimatorInfoArgs>,
+    ) -> Result<CallToolResult, McpError> {
+        let params = serde_json::to_value(&args)
+            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
+        self.call_bridge("get_animator_info", params).await
+    }
+
+    #[tool(
+        name = "set_animator_parameter",
+        description = "Set an Animator parameter by name on a named GameObject. Only valid in play mode; returns an error otherwise. Type dispatch: float→SetFloat, bool→SetBool, int→SetInteger, trigger→SetTrigger (value ignored). Returns {gameObject, parameter, value, success}."
+    )]
+    async fn set_animator_parameter(
+        &self,
+        Parameters(args): Parameters<SetAnimatorParameterArgs>,
+    ) -> Result<CallToolResult, McpError> {
+        let params = serde_json::to_value(&args)
+            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
+        self.call_bridge("set_animator_parameter", params).await
+    }
+
+    #[tool(
+        name = "list_animation_clips",
+        description = "List AnimationClip assets in the project. Scope to a folder via search_path (e.g. Assets/Animations); searches entire project if omitted. Returns {count, clips:[{name,assetPath,length,frameRate,isLooping,isHumanMotion}]}."
+    )]
+    async fn list_animation_clips(
+        &self,
+        Parameters(args): Parameters<ListAnimationClipsArgs>,
+    ) -> Result<CallToolResult, McpError> {
+        let params = serde_json::to_value(&args)
+            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
+        self.call_bridge("list_animation_clips", params).await
     }
 }
 
