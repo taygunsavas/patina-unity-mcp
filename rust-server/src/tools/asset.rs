@@ -6,8 +6,10 @@ pub struct FindAssetsByTypeArgs {
     /// Unity asset type filter (e.g. "t:Material", "t:Prefab", "t:Texture2D", "t:AudioClip").
     pub type_filter: String,
     /// Optional folder to limit search (e.g. "Assets/Materials"). Searches all Assets if omitted.
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub search_folder: Option<String>,
     /// Maximum number of results to return. Defaults to 50.
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub max_results: Option<u32>,
 }
 
@@ -16,8 +18,10 @@ pub struct FindAssetsByNameArgs {
     /// Name pattern to search for (partial match supported).
     pub name_pattern: String,
     /// Optional folder to limit search.
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub search_folder: Option<String>,
     /// Maximum number of results to return. Defaults to 50.
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub max_results: Option<u32>,
 }
 
@@ -60,6 +64,7 @@ pub struct GetAssetInfoArgs {
 #[derive(Debug, Deserialize, Serialize, JsonSchema)]
 pub struct RefreshAssetDatabaseArgs {
     /// Import options: "default" (incremental) or "force_update" (reimport all). Defaults to "default".
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub import_options: Option<String>,
 }
 

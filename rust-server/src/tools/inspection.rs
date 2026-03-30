@@ -6,6 +6,7 @@ pub struct GetGameObjectInfoArgs {
     /// Name of the target GameObject.
     pub game_object_name: String,
     /// When true (default), include serialized component properties in the response.
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub include_component_properties: Option<bool>,
 }
 
@@ -14,6 +15,7 @@ pub struct FindGameObjectsByTagArgs {
     /// Tag string to search (e.g. "Player", "Enemy").
     pub tag: String,
     /// Maximum results to return. Defaults to 50.
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub max_results: Option<u32>,
 }
 
@@ -22,6 +24,7 @@ pub struct FindGameObjectsByComponentArgs {
     /// Component type name. Short (Rigidbody) or fully qualified (UnityEngine.Rigidbody) both work.
     pub component_type: String,
     /// Maximum results to return. Defaults to 50.
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub max_results: Option<u32>,
 }
 
@@ -30,5 +33,6 @@ pub struct FindGameObjectsByLayerArgs {
     /// Layer name as defined in Project Settings → Tags and Layers (e.g. "Default", "UI").
     pub layer_name: String,
     /// Maximum results to return. Defaults to 50.
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub max_results: Option<u32>,
 }

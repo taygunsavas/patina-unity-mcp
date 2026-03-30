@@ -13,7 +13,7 @@ namespace Patina.Editor.Commands
         {
             string gameObjectName = parameters?["game_object_name"]?.Value<string>();
             string layerName = parameters?["layer_name"]?.Value<string>();
-            bool applyToChildren = parameters?["apply_to_children"]?.Value<bool>() ?? false;
+            bool applyToChildren = parameters?["apply_to_children"]?.Value<bool?>() ?? false;
 
             if (string.IsNullOrEmpty(gameObjectName))
                 throw new ArgumentException("game_object_name is required");

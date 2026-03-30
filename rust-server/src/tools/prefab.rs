@@ -14,8 +14,10 @@ pub struct InstantiatePrefabArgs {
     /// Asset path of the prefab to instantiate (e.g. "Assets/Prefabs/MyPrefab.prefab").
     pub prefab_path: String,
     /// Optional world position as [x, y, z].
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub position: Option<[f32; 3]>,
     /// Optional name for the instantiated object.
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub name: Option<String>,
 }
 
@@ -24,6 +26,7 @@ pub struct GetPrefabInfoArgs {
     /// Asset path ("Assets/…") or scene GameObject name to inspect.
     pub target: String,
     /// Hint for target type: "asset" or "instance". Auto-detected if omitted.
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub target_type: Option<String>,
 }
 
@@ -32,6 +35,7 @@ pub struct UnpackPrefabArgs {
     /// Name of the scene GameObject to unpack.
     pub game_object_name: String,
     /// Unpack depth: "outermost" (default) leaves nested prefabs intact; "completely" unpacks all levels.
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub mode: Option<String>,
 }
 

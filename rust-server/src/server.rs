@@ -512,7 +512,7 @@ impl UnityMcpServer {
 
     #[tool(
         name = "set_build_scenes",
-        description = "Replace the Build Settings scene list with the provided ordered scene_paths. All listed scenes are enabled; any previously listed scenes not in the new list are removed. Returns {sceneCount, success}."
+        description = "Replace the Build Settings scene list with the provided ordered scene_paths. All listed scenes are enabled; any previously listed scenes not in the new list are removed. scene_paths must be a JSON array of strings — passing a plain string causes a -32602 parse error. Returns {sceneCount, success}."
     )]
     async fn set_build_scenes(
         &self,
@@ -605,7 +605,7 @@ impl UnityMcpServer {
 
     #[tool(
         name = "set_play_mode",
-        description = "Enter, exit, pause, unpause, or step play mode. mode accepts: enter, exit, pause, unpause, step. Note: enter is asynchronous — returns after setting the flag, not after play mode is fully active. Returns {requestedMode, success}."
+        description = "Enter, exit, pause, unpause, or step play mode. mode accepts: enter, exit, pause, unpause, step. Note: enter is asynchronous — returns after setting the flag, not after play mode is fully active. Note: exit triggers a domain reload which drops the MCP connection briefly; always follow exit with get_editor_state to confirm isPlaying is false before proceeding. Returns {requestedMode, success}."
     )]
     async fn set_play_mode(
         &self,

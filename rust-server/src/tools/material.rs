@@ -8,6 +8,7 @@ pub struct CreateMaterialArgs {
     /// Project-relative save path, e.g. "Assets/Materials". Folder must exist.
     pub save_path: String,
     /// Shader to use. Defaults to "Universal Render Pipeline/Lit" when omitted.
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub shader_name: Option<String>,
 }
 
@@ -34,5 +35,6 @@ pub struct AssignMaterialArgs {
     /// Project-relative path to the material asset, e.g. "Assets/Materials/MyMat.mat".
     pub material_path: String,
     /// Zero-based material slot index on the Renderer. Defaults to 0 when omitted.
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub material_index: Option<u32>,
 }
