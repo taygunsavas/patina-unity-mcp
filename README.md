@@ -41,22 +41,114 @@ Open your MCP host and try:
 
 ## Available Tools
 
+### Scene
+
 | Tool | What it does |
 |------|-------------|
-| `log_to_console` | Send messages to the Unity Console |
-| `get_hierarchy` | Retrieve the full scene GameObject tree |
-| `create_game_object` | Spawn GameObjects or built-in primitives |
-| `get_scene_info` | Get active scene metadata (name, path, build index, root count, dirty state; optionally all loaded scenes) |
-| `add_component` | Add a component to a GameObject by type name (short name or fully qualified) |
-| `set_property` | Set a component property value as JSON |
-| `remove_component` | Remove a component from a GameObject by type name |
-| `reparent_game_object` | Move a GameObject to a new parent (with optional world-position preserve) |
-| `delete_game_object` | Delete a GameObject from the scene |
-| `duplicate_game_object` | Duplicate an existing GameObject |
+| `get_hierarchy` | Retrieve the active scene's GameObject tree as nested JSON; supports `max_depth` and `name_filter` |
+| `get_scene_info` | Active scene metadata (name, path, build index, root count, dirty state); pass `include_all_scenes` for all loaded scenes |
+| `open_scene` | Open a scene by project-relative path; `mode` single (default) or additive |
+| `save_scene` | Save the active scene or any loaded scene; supports Save As |
+| `new_scene` | Create and save a new scene with optional empty or default-game-objects setup |
+
+### GameObjects
+
+| Tool | What it does |
+|------|-------------|
+| `create_game_object` | Spawn an empty GameObject or a built-in primitive (Cube, Sphere, Capsule, Cylinder, Plane, Quad) |
+| `delete_game_object` | Permanently delete a GameObject and all its children |
+| `duplicate_game_object` | Duplicate a GameObject and its children |
+| `reparent_game_object` | Move a GameObject under a new parent; pass `null` to promote to scene root |
+| `get_game_object_info` | Full details for a named GameObject: transform, tag, layer, and all component properties |
+| `set_active_state` | Show or hide a GameObject via `SetActive()` |
+| `set_tag` | Set the tag on a GameObject (tag must be registered in Tags & Layers) |
+| `set_layer` | Set the layer by name; optionally apply to all children |
+| `set_transform` | Set position, rotation (Euler), and/or scale in world or local space in one call |
+
+### Components & Properties
+
+| Tool | What it does |
+|------|-------------|
+| `add_component` | Add a component by short name (`Rigidbody`) or fully qualified name |
+| `remove_component` | Remove a component by type name |
+| `set_property` | Set any serialized property on a component using its SerializedObject path |
+
+### Prefabs
+
+| Tool | What it does |
+|------|-------------|
 | `create_prefab` | Save a scene GameObject as a prefab asset |
-| `instantiate_prefab` | Instantiate a prefab into the scene with optional position and name |
-| `find_assets_by_type` | Search project assets by type filter (e.g. `t:Material`, `t:Prefab`) |
-| `find_assets_by_name` | Search project assets by name pattern |
+| `instantiate_prefab` | Instantiate a prefab into the scene at an optional world position |
+| `get_prefab_info` | Inspect a prefab asset or scene instance; returns asset type, overrides list, and instance status |
+| `unpack_prefab` | Sever a prefab instance link; `outermost` (default) or `completely` |
+| `apply_prefab_overrides` | Apply all instance overrides back to the source prefab asset on disk |
+| `revert_prefab_overrides` | Restore a prefab instance to match its source asset |
+
+### Assets
+
+| Tool | What it does |
+|------|-------------|
+| `find_assets_by_type` | Search the Asset Database by type filter (`t:Material`, `t:Prefab`, `t:Texture2D`, etc.) |
+| `find_assets_by_name` | Search the Asset Database by partial name match |
+| `get_asset_info` | Metadata for an asset: GUID, type, file size, labels, and importer settings |
+| `create_folder` | Create a new folder in the Asset Database |
+| `move_asset` | Move an asset to a new project-relative path |
+| `rename_asset` | Rename an asset in-place |
+| `delete_asset` | Delete an asset by project-relative path |
+| `refresh_asset_database` | Trigger `AssetDatabase.Refresh`; incremental or force-reimport |
+| `set_asset_labels` | Replace the full label list on an asset |
+
+### Materials
+
+| Tool | What it does |
+|------|-------------|
+| `create_material` | Create a new Material asset; defaults to URP/Lit |
+| `get_material_properties` | Read all exposed shader properties with names, types, and current values |
+| `set_material_property` | Set a shader property (float, bool, color, vector, or texture path) |
+| `assign_material` | Assign a Material to a specific Renderer slot |
+
+### Scripts
+
+| Tool | What it does |
+|------|-------------|
+| `create_script` | Create a new C# script from a template (`monobehaviour`, `scriptableobject`, `editor_window`, `plain_class`, `interface`) or verbatim content |
+
+### Search
+
+| Tool | What it does |
+|------|-------------|
+| `find_game_objects_by_tag` | Find all active GameObjects with a given tag |
+| `find_game_objects_by_component` | Find all scene objects that have a given component type |
+| `find_game_objects_by_layer` | Find all scene objects on a given layer by name |
+
+### Console
+
+| Tool | What it does |
+|------|-------------|
+| `log_to_console` | Emit a message to the Unity Console (`info`, `warning`, or `error`) |
+| `get_console_logs` | Read buffered console entries; filterable by type, capped by `max_results` |
+| `clear_console` | Clear all console log entries |
+
+### Editor State & Control
+
+| Tool | What it does |
+|------|-------------|
+| `get_editor_state` | Current editor flags: `isCompiling`, `isPlaying`, `isPaused`, `hasCompileErrors`, version, and project path |
+| `get_project_settings` | Read-only snapshot of key project settings (version, build target, color space, physics gravity, etc.) |
+| `set_play_mode` | Enter, exit, pause, unpause, or step play mode |
+| `execute_menu_item` | Execute any Editor menu item by full path (e.g. `Assets/Refresh`) |
+| `get_selection` | Return the current Editor selection (scene objects and/or asset paths) |
+| `set_selection` | Set the Editor selection to specific GameObjects and/or asset paths |
+
+### Build & Player Settings
+
+| Tool | What it does |
+|------|-------------|
+| `get_build_settings` | Build Settings snapshot: active target, scripting backend, and full scene list |
+| `set_build_scenes` | Replace the Build Settings scene list with an ordered list of scene paths |
+| `get_player_settings` | Read Player Settings for a build target group (Standalone, Android, iOS, WebGL) |
+| `set_player_settings` | Write Player Settings fields; only non-null fields are changed |
+| `set_build_target` | Switch the active build target (blocks the main thread on large projects) |
 
 ## Supported Hosts
 
