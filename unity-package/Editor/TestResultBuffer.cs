@@ -60,7 +60,21 @@ namespace Patina.Editor
             TestResultBuffer.SetRunning(_mode, true);
         }
 
-        public void RunStarted(ITestAdaptor testsToRun) { }
+        public void RunStarted(ITestAdaptor testsToRun)
+        {
+            if (CountLeafTests(testsToRun) == 0)
+                TestResultBuffer.SetResults(_mode, new List<TestRunResult>());
+        }
+
+        private static int CountLeafTests(ITestAdaptor node)
+        {
+            if (!node.IsSuite) return 1;
+            int count = 0;
+            if (node.Children != null)
+                foreach (var child in node.Children)
+                    count += CountLeafTests(child);
+            return count;
+        }
 
         public void RunFinished(ITestResultAdaptor result)
         {
