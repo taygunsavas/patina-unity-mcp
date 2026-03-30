@@ -22,7 +22,17 @@ namespace Patina.Editor.Commands
 
             return await MainThreadQueue.EnqueueAsync(() =>
             {
-                string error = AssetDatabase.RenameAsset(capturedPath, capturedName);
+                AssetDatabase.StartAssetEditing();
+                string error;
+                try
+                {
+                    error = AssetDatabase.RenameAsset(capturedPath, capturedName);
+                }
+                finally
+                {
+                    AssetDatabase.StopAssetEditing();
+                }
+
                 if (!string.IsNullOrEmpty(error))
                     throw new InvalidOperationException(error);
 

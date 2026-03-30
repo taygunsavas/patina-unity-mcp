@@ -32,7 +32,15 @@ namespace Patina.Editor.Commands
                 if (asset == null)
                     throw new ArgumentException("Asset not found: " + capturedPath);
 
-                AssetDatabase.SetLabels(asset, capturedLabels);
+                AssetDatabase.StartAssetEditing();
+                try
+                {
+                    AssetDatabase.SetLabels(asset, capturedLabels);
+                }
+                finally
+                {
+                    AssetDatabase.StopAssetEditing();
+                }
 
                 var labelsArray = new JArray();
                 foreach (var lbl in capturedLabels) labelsArray.Add(lbl);

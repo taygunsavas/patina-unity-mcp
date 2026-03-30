@@ -23,7 +23,7 @@ namespace Patina.Editor.Commands
 
             JObject result = await MainThreadQueue.EnqueueAsync(() =>
             {
-                GameObject go = GameObject.Find(capturedName);
+                GameObject go = GameObjectFinder.Find(capturedName);
                 if (go == null)
                     throw new InvalidOperationException($"GameObject '{capturedName}' not found");
 

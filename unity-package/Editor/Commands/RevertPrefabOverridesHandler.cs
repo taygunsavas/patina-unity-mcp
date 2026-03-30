@@ -28,7 +28,9 @@ namespace Patina.Editor.Commands
                 if (!PrefabUtility.IsPartOfPrefabInstance(go))
                     throw new InvalidOperationException($"'{capturedName}' is not a prefab instance");
 
-                PrefabUtility.RevertPrefabInstance(go, InteractionMode.UserAction);
+                // Revert from the outermost root so name/transform overrides are included
+                GameObject root = PrefabUtility.GetOutermostPrefabInstanceRoot(go) ?? go;
+                PrefabUtility.RevertPrefabInstance(root, InteractionMode.AutomatedAction);
 
                 return new JObject
                 {
