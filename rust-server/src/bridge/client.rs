@@ -150,13 +150,50 @@ impl BridgeClient {
         command: &str,
         params: serde_json::Value,
     ) -> Result<BridgeResponse, String> {
+        const MAX_RETRIES: u32 = 3;
+        let backoffs = [
+            Duration::from_millis(200),
+            Duration::from_millis(400),
+            Duration::from_millis(800),
+        ];
+
+        let mut last_error = String::new();
+
+        for attempt in 0..=MAX_RETRIES {
+            match self.do_request(command, &params).await {
+                Ok(response) => return Ok(response),
+                Err(error) if attempt < MAX_RETRIES && is_transient_bridge_error(&error) => {
+                    warn!(
+                        "Transient bridge error on attempt {}/{}: {}. Retrying in {:?}",
+                        attempt + 1,
+                        MAX_RETRIES,
+                        error,
+                        backoffs[attempt as usize]
+                    );
+                    // Clear the writer so ensure_connected triggers a fresh reconnect.
+                    *self.writer.lock().await = None;
+                    tokio::time::sleep(backoffs[attempt as usize]).await;
+                    last_error = error;
+                }
+                Err(error) => return Err(error),
+            }
+        }
+
+        Err(last_error)
+    }
+
+    async fn do_request(
+        self: &Arc<Self>,
+        command: &str,
+        params: &serde_json::Value,
+    ) -> Result<BridgeResponse, String> {
         self.ensure_connected().await?;
 
         let id = Uuid::new_v4().to_string();
         let request = BridgeRequest {
             id: id.clone(),
             command: command.to_string(),
-            params,
+            params: params.clone(),
         };
 
         let payload =
@@ -193,6 +230,12 @@ impl BridgeClient {
             }
         }
     }
+}
+
+fn is_transient_bridge_error(error: &str) -> bool {
+    error.contains("Response channel closed unexpectedly")
+        || error.contains("TCP send error")
+        || error.contains("Not connected")
 }
 
 async fn read_frame(reader: &mut OwnedReadHalf) -> Result<Option<String>, String> {
