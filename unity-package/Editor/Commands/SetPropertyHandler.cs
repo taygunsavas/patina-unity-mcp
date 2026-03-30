@@ -1,5 +1,6 @@
 using Newtonsoft.Json.Linq;
 using System;
+using System.Globalization;
 using System.Reflection;
 using System.Threading.Tasks;
 using UnityEditor;
@@ -97,13 +98,15 @@ namespace Patina.Editor.Commands
             if (targetType == typeof(bool))
                 return bool.Parse(jsonValue);
             if (targetType == typeof(int))
-                return int.Parse(jsonValue);
+                return int.Parse(jsonValue, CultureInfo.InvariantCulture);
             if (targetType == typeof(float))
-                return float.Parse(jsonValue);
+                return float.Parse(jsonValue, CultureInfo.InvariantCulture);
+            if (targetType == typeof(double))
+                return double.Parse(jsonValue, CultureInfo.InvariantCulture);
             if (targetType == typeof(string))
                 return jsonValue.Trim('"');
 
-            return Convert.ChangeType(jsonValue, targetType);
+            return Convert.ChangeType(jsonValue, targetType, CultureInfo.InvariantCulture);
         }
     }
 }
