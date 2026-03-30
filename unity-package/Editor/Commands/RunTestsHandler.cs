@@ -2,6 +2,7 @@ using Newtonsoft.Json.Linq;
 using System;
 using System.Threading.Tasks;
 using UnityEditor;
+using UnityEditor.SceneManagement;
 using UnityEditor.TestTools.TestRunner.Api;
 using UnityEngine;
 
@@ -37,6 +38,9 @@ namespace Patina.Editor.Commands
 
                 if (!string.IsNullOrEmpty(capturedFilter))
                     filter.testNames = new[] { capturedFilter };
+
+                if (capturedMode == "PlayMode")
+                    EditorSceneManager.SaveOpenScenes();
 
                 api.Execute(new ExecutionSettings(filter));
 
