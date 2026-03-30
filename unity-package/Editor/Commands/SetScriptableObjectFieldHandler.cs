@@ -61,6 +61,16 @@ namespace Patina.Editor.Commands
 
         private static object ConvertValue(JToken token, Type targetType, string fieldName)
         {
+            // Normalize: if agent sent an array as a JSON string (e.g. "[9,8,7]"), unwrap it first
+            if (token is JValue jv && jv.Type == JTokenType.String)
+            {
+                string s = jv.Value<string>();
+                if (s != null && s.TrimStart().StartsWith("["))
+                {
+                    try { token = JArray.Parse(s); } catch { /* fall through to type-specific error */ }
+                }
+            }
+
             if (targetType == typeof(int)    || targetType == typeof(long))   return token.Value<int>();
             if (targetType == typeof(float))                                   return token.Value<float>();
             if (targetType == typeof(double))                                  return token.Value<double>();
