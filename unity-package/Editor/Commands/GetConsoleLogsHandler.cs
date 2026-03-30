@@ -13,19 +13,26 @@ namespace Patina.Editor.Commands
 
             int maxResults = parameters != null && parameters.TryGetValue("max_results", out JToken maxToken)
                 ? maxToken.Value<int>()
-                : 50;
+                : 20;
+
+            bool includeStackTrace = parameters != null &&
+                parameters.TryGetValue("include_stack_trace", out JToken stackToken) &&
+                stackToken.Type != JTokenType.Null &&
+                stackToken.Value<bool>();
 
             var logEntries = ConsoleLogBuffer.GetEntries(filter, maxResults);
 
             var entries = new JArray();
             foreach (var entry in logEntries)
             {
-                entries.Add(new JObject
+                var obj = new JObject
                 {
                     ["type"] = entry.Type,
-                    ["message"] = entry.Message,
-                    ["stackTrace"] = entry.StackTrace
-                });
+                    ["message"] = entry.Message
+                };
+                if (includeStackTrace)
+                    obj["stackTrace"] = entry.StackTrace;
+                entries.Add(obj);
             }
 
             object result = new JObject

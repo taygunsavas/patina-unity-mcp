@@ -64,7 +64,7 @@ namespace Patina.Editor.Commands
 
         private static GameObject FindSceneGameObject(string name)
         {
-            foreach (GameObject go in Resources.FindObjectsOfTypeAll<GameObject>())
+            foreach (GameObject go in UnityEngine.Object.FindObjectsByType<GameObject>(FindObjectsInactive.Include, FindObjectsSortMode.None))
             {
                 if (go.scene.IsValid() && go.name == name)
                     return go;

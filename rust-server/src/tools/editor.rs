@@ -15,9 +15,12 @@ pub struct GetConsoleLogsArgs {
     /// Log type filter: "all", "errors", "warnings", or "logs". Defaults to "all".
     #[serde(default = "default_filter")]
     pub filter: String,
-    /// Maximum number of entries to return. Defaults to 50.
+    /// Maximum number of entries to return. Defaults to 20.
     #[serde(default = "default_max_results")]
     pub max_results: u32,
+    /// When true, include the full stack trace string in each entry. Defaults to false to keep output compact.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub include_stack_trace: Option<bool>,
 }
 
 fn default_filter() -> String {
@@ -25,7 +28,7 @@ fn default_filter() -> String {
 }
 
 fn default_max_results() -> u32 {
-    50
+    20
 }
 
 #[derive(Debug, Deserialize, Serialize, JsonSchema)]

@@ -8,19 +8,23 @@ use rmcp::{
 
 use crate::bridge::BridgeClient;
 use crate::tools::{
-    AddComponentArgs, ApplyPrefabOverridesArgs, AssignMaterialArgs, ClearConsoleArgs,
+    AddComponentArgs, ApplyPrefabOverridesArgs, AssignMaterialArgs, BatchAddComponentsArgs,
+    BatchSetPropertiesArgs, BatchSetTransformArgs, BeginUndoGroupArgs, ClearConsoleArgs,
     CreateFolderArgs, CreateGameObjectArgs, CreateMaterialArgs, CreatePrefabArgs, CreateScriptArgs,
-    DeleteAssetArgs, DeleteGameObjectArgs, DuplicateGameObjectArgs, ExecuteMenuItemArgs,
-    FindAssetsByNameArgs, FindAssetsByTypeArgs, FindGameObjectsByComponentArgs,
-    FindGameObjectsByLayerArgs, FindGameObjectsByTagArgs, GetAssetInfoArgs, GetBuildSettingsArgs,
-    GetConsoleLogsArgs, GetEditorStateArgs, GetGameObjectInfoArgs, GetHierarchyArgs,
-    GetMaterialPropertiesArgs, GetPrefabInfoArgs, GetSceneInfoArgs, InstantiatePrefabArgs,
-    LogToConsoleArgs, MoveAssetArgs, NewSceneArgs, OpenSceneArgs, RefreshAssetDatabaseArgs,
-    RemoveComponentArgs, RenameAssetArgs, ReparentGameObjectArgs, RevertPrefabOverridesArgs,
-    GetPlayerSettingsArgs, SaveSceneArgs, SetAssetLabelsArgs, SetBuildScenesArgs,
-    SetBuildTargetArgs, SetMaterialPropertyArgs, SetPlayModeArgs, SetPlayerSettingsArgs,
-    SetPropertyArgs, GetSelectionArgs, SetSelectionArgs, UnpackPrefabArgs,
-    GetProjectSettingsArgs, SetActiveStateArgs, SetLayerArgs, SetTagArgs, SetTransformArgs,
+    DeleteAssetArgs, DeleteGameObjectArgs, DuplicateGameObjectArgs, EndUndoGroupArgs,
+    ExecuteMenuItemArgs, FindAssetsByNameArgs, FindAssetsByTypeArgs,
+    FindGameObjectsByComponentArgs, FindGameObjectsByLayerArgs, FindGameObjectsByPathArgs,
+    FindGameObjectsByTagArgs, ForceRecompileArgs, GetAssetInfoArgs, GetAssemblyTypesArgs,
+    GetBuildSettingsArgs, GetCompilationErrorsArgs, GetConsoleLogsArgs, GetEditorStateArgs,
+    GetGameObjectComponentsArgs, GetGameObjectInfoArgs, GetHierarchyArgs,
+    GetMaterialPropertiesArgs, GetPlayerSettingsArgs, GetPrefabInfoArgs, GetProjectSettingsArgs,
+    GetSceneInfoArgs, GetSceneStatsArgs, GetSelectionArgs, GetUndoStackArgs, InstantiatePrefabArgs,
+    LogToConsoleArgs, MoveAssetArgs, NewSceneArgs, OpenSceneArgs, QueryGameObjectsArgs,
+    RedoArgs, RefreshAssetDatabaseArgs, RemoveComponentArgs, RenameAssetArgs,
+    ReparentGameObjectArgs, RevertPrefabOverridesArgs, SaveSceneArgs, SetActiveStateArgs,
+    SetAssetLabelsArgs, SetBuildScenesArgs, SetBuildTargetArgs, GetScriptContentArgs,
+    SetLayerArgs, SetMaterialPropertyArgs, SetPlayModeArgs, SetPlayerSettingsArgs, SetPropertyArgs,
+    SetSelectionArgs, SetTagArgs, SetTransformArgs, UndoArgs, UnpackPrefabArgs, ValidateSceneArgs,
 };
 
 #[derive(Clone)]
@@ -87,7 +91,7 @@ impl UnityMcpServer {
 
     #[tool(
         name = "get_hierarchy",
-        description = "Return the active scene's GameObject tree as nested JSON. Use max_depth (e.g. 2) on large scenes to limit output; omit for the full tree. Use name_filter to narrow to matching subtrees."
+        description = "Return the active scene's GameObject tree as nested JSON. compact=true (default) returns lightweight nodes: name, activeSelf, instanceId, childCount, components (type names only). Set compact=false for full node data. max_depth defaults to 3 — pass a larger value (e.g. 100) for the full tree. Use name_filter to narrow to matching subtrees."
     )]
     async fn get_hierarchy(
         &self,
@@ -364,7 +368,7 @@ impl UnityMcpServer {
 
     #[tool(
         name = "get_asset_info",
-        description = "Return metadata for an asset at a project-relative path. Returns {path, guid, assetType, fileSize, labels, importer, importerSettings} where importerSettings contains scalar importer property values (int, float, bool, string)."
+        description = "Return metadata for an asset: path, guid, assetType, fileSize, labels, importer type. include_importer_settings defaults to false. Set to true to include serialized importer properties (int/float/bool/string). Returns {path, guid, assetType, fileSize, labels, importer[, importerSettings]}."
     )]
     async fn get_asset_info(
         &self,
@@ -405,7 +409,7 @@ impl UnityMcpServer {
 
     #[tool(
         name = "get_game_object_info",
-        description = "Return full details for a named GameObject: transform, tag, layer, static flag, scene path, and all attached components with their serialized properties. Set include_component_properties=false to get component names only. Properties use SerializedObject paths (depth ≤ 3, arrays ≤ 32 elements)."
+        description = "Return details for a named GameObject: transform, tag, layer, static flag, scene path, and attached components. include_component_properties defaults to false (returns component type+instanceId only). Set to true only for deep property inspection — output can be very large. Prefer get_game_object_components for a lightweight component list."
     )]
     async fn get_game_object_info(
         &self,
@@ -414,6 +418,19 @@ impl UnityMcpServer {
         let params = serde_json::to_value(&args)
             .map_err(|e| McpError::internal_error(e.to_string(), None))?;
         self.call_bridge("get_game_object_info", params).await
+    }
+
+    #[tool(
+        name = "get_game_object_components",
+        description = "Return the lightweight component list for a named GameObject: [{type, instanceId}]. Use this before get_game_object_info to identify which components exist without incurring property serialization cost. Returns {name, instanceId, components:[{type, instanceId}]}."
+    )]
+    async fn get_game_object_components(
+        &self,
+        Parameters(args): Parameters<GetGameObjectComponentsArgs>,
+    ) -> Result<CallToolResult, McpError> {
+        let params = serde_json::to_value(&args)
+            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
+        self.call_bridge("get_game_object_components", params).await
     }
 
     #[tool(
@@ -618,7 +635,7 @@ impl UnityMcpServer {
 
     #[tool(
         name = "get_console_logs",
-        description = "Read buffered Unity console log entries. filter accepts: all, errors, warnings, logs (default all). max_results caps the returned count (default 50). Returns {totalReturned, entries:[{type,message,stackTrace}]}."
+        description = "Read buffered Unity console log entries. filter: all (default), errors, warnings, logs. max_results caps count (default 20). include_stack_trace defaults to false — set to true only when diagnosing specific errors. Returns {totalReturned, entries:[{type,message[,stackTrace]}]}."
     )]
     async fn get_console_logs(
         &self,
@@ -789,6 +806,224 @@ impl UnityMcpServer {
         let params = serde_json::to_value(&args)
             .map_err(|e| McpError::internal_error(e.to_string(), None))?;
         self.call_bridge("get_project_settings", params).await
+    }
+
+    // === Sprint 4 — STO-31: Batch Operations ===
+
+    #[tool(
+        name = "batch_set_properties",
+        description = "Apply up to 100 property/field mutations across multiple GameObjects in one call under a single Undo group. Partial failures are reported per-item without aborting the batch. Returns {success, results:[{gameObject, component, property, success, error?}]}."
+    )]
+    async fn batch_set_properties(
+        &self,
+        Parameters(args): Parameters<BatchSetPropertiesArgs>,
+    ) -> Result<CallToolResult, McpError> {
+        let params = serde_json::to_value(&args)
+            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
+        self.call_bridge("batch_set_properties", params).await
+    }
+
+    #[tool(
+        name = "batch_add_components",
+        description = "Add components to multiple GameObjects in one call under a single Undo group. operations is an array of objects: [{\"game_object_name\":\"...\",\"component_type\":\"...\"}] — NOT an array of JSON strings. Skips GameObjects that already have the component; reports missing GameObjects as per-item errors without aborting. Returns {success, results:[{gameObject, component, success, error?}]}."
+    )]
+    async fn batch_add_components(
+        &self,
+        Parameters(args): Parameters<BatchAddComponentsArgs>,
+    ) -> Result<CallToolResult, McpError> {
+        let params = serde_json::to_value(&args)
+            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
+        self.call_bridge("batch_add_components", params).await
+    }
+
+    #[tool(
+        name = "batch_set_transform",
+        description = "Apply position/rotation/scale overrides to multiple GameObjects in one call under a single Undo group. Omit any transform field to leave it unchanged. space=\"world\" (default) or \"local\". Returns {success, results:[{gameObject, success, error?}]}."
+    )]
+    async fn batch_set_transform(
+        &self,
+        Parameters(args): Parameters<BatchSetTransformArgs>,
+    ) -> Result<CallToolResult, McpError> {
+        let params = serde_json::to_value(&args)
+            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
+        self.call_bridge("batch_set_transform", params).await
+    }
+
+    // === Sprint 4 — STO-32: Compound Scene Query ===
+
+    #[tool(
+        name = "query_game_objects",
+        description = "Find GameObjects matching all specified filters in one call (AND logic): tags, components, layer, path prefix, active state. Returns {count, objects:[{name, instanceId, scenePath}]}. max_results caps output (default 50, max 200). Replaces separate find_game_objects_by_tag + find_game_objects_by_component calls."
+    )]
+    async fn query_game_objects(
+        &self,
+        Parameters(args): Parameters<QueryGameObjectsArgs>,
+    ) -> Result<CallToolResult, McpError> {
+        let params = serde_json::to_value(&args)
+            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
+        self.call_bridge("query_game_objects", params).await
+    }
+
+    #[tool(
+        name = "find_game_objects_by_path",
+        description = "Find all GameObjects whose scene hierarchy path starts with path_prefix (e.g. \"/Canvas/HUD\"). Returns {count, objects:[{name, instanceId, scenePath, depth}]}. max_results caps output (default 50, max 200)."
+    )]
+    async fn find_game_objects_by_path(
+        &self,
+        Parameters(args): Parameters<FindGameObjectsByPathArgs>,
+    ) -> Result<CallToolResult, McpError> {
+        let params = serde_json::to_value(&args)
+            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
+        self.call_bridge("find_game_objects_by_path", params).await
+    }
+
+    // === Sprint 4 — STO-33: Undo/Transaction Group Control ===
+
+    #[tool(
+        name = "begin_undo_group",
+        description = "Open a named Undo group in Unity's Undo system. All Patina mutations recorded until end_undo_group will be collapsed into one Ctrl+Z step. Returns {groupIndex, label, success}."
+    )]
+    async fn begin_undo_group(
+        &self,
+        Parameters(args): Parameters<BeginUndoGroupArgs>,
+    ) -> Result<CallToolResult, McpError> {
+        let params = serde_json::to_value(&args)
+            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
+        self.call_bridge("begin_undo_group", params).await
+    }
+
+    #[tool(
+        name = "end_undo_group",
+        description = "Collapse all Undo operations recorded since begin_undo_group into a single undoable step. Pass the group_index returned by begin_undo_group. Returns {groupIndex, success}."
+    )]
+    async fn end_undo_group(
+        &self,
+        Parameters(args): Parameters<EndUndoGroupArgs>,
+    ) -> Result<CallToolResult, McpError> {
+        let params = serde_json::to_value(&args)
+            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
+        self.call_bridge("end_undo_group", params).await
+    }
+
+    #[tool(
+        name = "undo",
+        description = "Perform one or more Undo steps in the Unity Editor (equivalent to Ctrl+Z). count defaults to 1. Returns {performedCount, success}."
+    )]
+    async fn undo(
+        &self,
+        Parameters(args): Parameters<UndoArgs>,
+    ) -> Result<CallToolResult, McpError> {
+        let params = serde_json::to_value(&args)
+            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
+        self.call_bridge("undo", params).await
+    }
+
+    #[tool(
+        name = "redo",
+        description = "Perform one or more Redo steps in the Unity Editor (equivalent to Ctrl+Y). count defaults to 1. Returns {performedCount, success}."
+    )]
+    async fn redo(
+        &self,
+        Parameters(args): Parameters<RedoArgs>,
+    ) -> Result<CallToolResult, McpError> {
+        let params = serde_json::to_value(&args)
+            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
+        self.call_bridge("redo", params).await
+    }
+
+    #[tool(
+        name = "get_undo_stack",
+        description = "Return the current Undo/Redo stack entry names (up to 20 each). Returns {undoNames:[], redoNames:[]}. If Unity's internal stack inspection is unavailable, returns empty arrays with a note field."
+    )]
+    async fn get_undo_stack(
+        &self,
+        Parameters(args): Parameters<GetUndoStackArgs>,
+    ) -> Result<CallToolResult, McpError> {
+        let params = serde_json::to_value(&args)
+            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
+        self.call_bridge("get_undo_stack", params).await
+    }
+
+    // === Sprint 4 — STO-34: Compilation Diagnostics & Script Analysis ===
+
+    #[tool(
+        name = "get_compilation_errors",
+        description = "Return compilation errors and warnings from the last Unity script compilation. Returns {errorCount, warningCount, errors:[{file, line, column, message, severity}]}. errorCount 0 means scripts compiled cleanly."
+    )]
+    async fn get_compilation_errors(
+        &self,
+        Parameters(args): Parameters<GetCompilationErrorsArgs>,
+    ) -> Result<CallToolResult, McpError> {
+        let params = serde_json::to_value(&args)
+            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
+        self.call_bridge("get_compilation_errors", params).await
+    }
+
+    #[tool(
+        name = "get_script_content",
+        description = "Read the text content of a Unity C# script asset. asset_path must start with Assets/ and end with .cs. Returns {assetPath, content, lineCount, byteSize}. Rejects paths containing ../ (path traversal guard). Max 50 KB."
+    )]
+    async fn get_script_content(
+        &self,
+        Parameters(args): Parameters<GetScriptContentArgs>,
+    ) -> Result<CallToolResult, McpError> {
+        let params = serde_json::to_value(&args)
+            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
+        self.call_bridge("get_script_content", params).await
+    }
+
+    #[tool(
+        name = "get_assembly_types",
+        description = "List all public types in a Unity assembly by name (e.g. Assembly-CSharp). Returns {assemblyName, typeCount, types:[{name, fullName, isMonoBehaviour, isScriptableObject, isEditor}]}. max_results caps output (default 200)."
+    )]
+    async fn get_assembly_types(
+        &self,
+        Parameters(args): Parameters<GetAssemblyTypesArgs>,
+    ) -> Result<CallToolResult, McpError> {
+        let params = serde_json::to_value(&args)
+            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
+        self.call_bridge("get_assembly_types", params).await
+    }
+
+    #[tool(
+        name = "force_recompile",
+        description = "Trigger a Unity script recompile via AssetDatabase.Refresh(ForceUpdate). Returns {triggered, isCompiling}. Use get_compilation_errors after compilation completes to check results."
+    )]
+    async fn force_recompile(
+        &self,
+        Parameters(args): Parameters<ForceRecompileArgs>,
+    ) -> Result<CallToolResult, McpError> {
+        let params = serde_json::to_value(&args)
+            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
+        self.call_bridge("force_recompile", params).await
+    }
+
+    // === Sprint 4 — STO-35: Scene Validation & Health Report ===
+
+    #[tool(
+        name = "validate_scene",
+        description = "Scan the active scene for quality issues: missing script references, null serialized fields, and broken prefab connections. severity_filter: \"all\" (default), \"error\", or \"warning\". Returns {issueCount, truncated, issues:[{gameObject, component, field, issueType, severity}]}. Max 500 issues."
+    )]
+    async fn validate_scene(
+        &self,
+        Parameters(args): Parameters<ValidateSceneArgs>,
+    ) -> Result<CallToolResult, McpError> {
+        let params = serde_json::to_value(&args)
+            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
+        self.call_bridge("validate_scene", params).await
+    }
+
+    #[tool(
+        name = "get_scene_stats",
+        description = "Return lightweight statistics for the active scene: objectCount, activeObjectCount, componentCount, uniqueComponentTypes, scriptCount, prefabInstanceCount, maxHierarchyDepth, sceneSize (bytes). Set include_per_type_counts=true to also get componentTypeCounts map. Targets < 100ms."
+    )]
+    async fn get_scene_stats(
+        &self,
+        Parameters(args): Parameters<GetSceneStatsArgs>,
+    ) -> Result<CallToolResult, McpError> {
+        let params = serde_json::to_value(&args)
+            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
+        self.call_bridge("get_scene_stats", params).await
     }
 }
 

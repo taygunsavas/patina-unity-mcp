@@ -12,11 +12,13 @@ namespace Patina.Editor.Commands
         public async Task<object> HandleAsync(JObject parameters)
         {
             string assetPath = parameters?["asset_path"]?.Value<string>();
+            bool includeImporterSettings = parameters?["include_importer_settings"]?.Value<bool?>() ?? false;
 
             if (string.IsNullOrEmpty(assetPath))
                 throw new ArgumentException("asset_path is required");
 
             string capturedPath = assetPath;
+            bool capturedIncludeImporter = includeImporterSettings;
 
             return await MainThreadQueue.EnqueueAsync(() =>
             {
@@ -38,7 +40,7 @@ namespace Patina.Editor.Commands
                 string importerType = importer != null ? importer.GetType().Name : null;
 
                 JObject importerSettings = null;
-                if (importer != null)
+                if (capturedIncludeImporter && importer != null)
                 {
                     importerSettings = new JObject();
                     var so = new UnityEditor.SerializedObject(importer);
@@ -76,16 +78,18 @@ namespace Patina.Editor.Commands
                 var labelsArray = new JArray();
                 foreach (var lbl in labels) labelsArray.Add(lbl);
 
-                return new JObject
+                var result = new JObject
                 {
                     ["path"] = capturedPath,
                     ["guid"] = guid,
                     ["assetType"] = assetType,
                     ["fileSize"] = fileSize,
                     ["labels"] = labelsArray,
-                    ["importer"] = importerType,
-                    ["importerSettings"] = importerSettings
+                    ["importer"] = importerType
                 };
+                if (capturedIncludeImporter)
+                    result["importerSettings"] = importerSettings;
+                return result;
             });
         }
     }

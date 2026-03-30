@@ -10,9 +10,6 @@ namespace Patina.Editor.Commands
         /// Unlike GameObject.Find, this locates inactive objects and objects
         /// that have not yet been indexed after instantiation.
         /// </summary>
-        /// <param name="name">GameObject name (used when instanceId is 0 or lookup by id fails).</param>
-        /// <param name="instanceId">Optional instance ID returned by a prior create/instantiate call.</param>
-        /// <returns>The matching scene GameObject, or null if not found.</returns>
         internal static GameObject Find(string name, int instanceId = 0)
         {
             if (instanceId != 0)
@@ -22,7 +19,7 @@ namespace Patina.Editor.Commands
                     return obj;
             }
 
-            foreach (GameObject go in Resources.FindObjectsOfTypeAll<GameObject>())
+            foreach (GameObject go in UnityEngine.Object.FindObjectsByType<GameObject>(FindObjectsInactive.Include, FindObjectsSortMode.None))
             {
                 if (go == null) continue;
                 if (go.hideFlags != HideFlags.None) continue;
@@ -32,5 +29,23 @@ namespace Patina.Editor.Commands
 
             return null;
         }
+
+        /// <summary>
+        /// Computes the full scene hierarchy path for a GameObject.
+        /// Returns a leading-slash path such as "/Canvas/HUD/HealthBar".
+        /// </summary>
+        internal static string GetScenePath(GameObject go)
+        {
+            if (go == null) return string.Empty;
+            var parts = new System.Collections.Generic.List<string>();
+            Transform t = go.transform;
+            while (t != null)
+            {
+                parts.Insert(0, t.name);
+                t = t.parent;
+            }
+            return "/" + string.Join("/", parts);
+        }
     }
 }
+

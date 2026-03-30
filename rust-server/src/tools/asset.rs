@@ -59,6 +59,9 @@ pub struct DeleteAssetArgs {
 pub struct GetAssetInfoArgs {
     /// Project-relative path of the asset (e.g. "Assets/Textures/Hero.png").
     pub asset_path: String,
+    /// When true, include serialized importer settings in the response. Defaults to false to keep output compact.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub include_importer_settings: Option<bool>,
 }
 
 #[derive(Debug, Deserialize, Serialize, JsonSchema)]

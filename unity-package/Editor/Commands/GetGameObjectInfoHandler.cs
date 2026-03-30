@@ -12,7 +12,7 @@ namespace Patina.Editor.Commands
         public async Task<object> HandleAsync(JObject parameters)
         {
             string gameObjectName = parameters?["game_object_name"]?.Value<string>();
-            bool includeProps = parameters?["include_component_properties"]?.Value<bool?>() ?? true;
+            bool includeProps = parameters?["include_component_properties"]?.Value<bool?>() ?? false;
 
             if (string.IsNullOrEmpty(gameObjectName))
                 throw new ArgumentException("game_object_name is required");

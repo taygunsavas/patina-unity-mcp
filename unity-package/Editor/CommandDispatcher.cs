@@ -77,6 +77,7 @@ namespace Patina.Editor
             RegisterHandler("set_asset_labels", new SetAssetLabelsHandler());
             // Phase 4 — Inspection and spatial search
             RegisterHandler("get_game_object_info", new GetGameObjectInfoHandler());
+            RegisterHandler("get_game_object_components", new GetGameObjectComponentsHandler());
             RegisterHandler("find_game_objects_by_tag", new FindGameObjectsByTagHandler());
             RegisterHandler("find_game_objects_by_component", new FindGameObjectsByComponentHandler());
             RegisterHandler("find_game_objects_by_layer", new FindGameObjectsByLayerHandler());
@@ -112,6 +113,27 @@ namespace Patina.Editor
             RegisterHandler("set_layer", new SetLayerHandler());
             RegisterHandler("set_transform", new SetTransformHandler());
             RegisterHandler("get_project_settings", new GetProjectSettingsHandler());
+            // STO-31 — Batch Operations
+            RegisterHandler("batch_set_properties", new BatchSetPropertiesHandler());
+            RegisterHandler("batch_add_components", new BatchAddComponentsHandler());
+            RegisterHandler("batch_set_transform", new BatchSetTransformHandler());
+            // STO-32 — Compound Scene Query
+            RegisterHandler("query_game_objects", new QueryGameObjectsHandler());
+            RegisterHandler("find_game_objects_by_path", new FindGameObjectsByPathHandler());
+            // STO-33 — Undo/Transaction Group Control
+            RegisterHandler("begin_undo_group", new BeginUndoGroupHandler());
+            RegisterHandler("end_undo_group", new EndUndoGroupHandler());
+            RegisterHandler("undo", new UndoHandler());
+            RegisterHandler("redo", new RedoHandler());
+            RegisterHandler("get_undo_stack", new GetUndoStackHandler());
+            // STO-34 — Compilation Diagnostics & Script Analysis
+            RegisterHandler("get_compilation_errors", new GetCompilationErrorsHandler());
+            RegisterHandler("get_script_content", new GetScriptContentHandler());
+            RegisterHandler("get_assembly_types", new GetAssemblyTypesHandler());
+            RegisterHandler("force_recompile", new ForceRecompileHandler());
+            // STO-35 — Scene Validation & Health Report
+            RegisterHandler("validate_scene", new ValidateSceneHandler());
+            RegisterHandler("get_scene_stats", new GetSceneStatsHandler());
         }
 
         public static int HandlerCount
