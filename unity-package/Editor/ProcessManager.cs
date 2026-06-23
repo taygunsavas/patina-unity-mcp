@@ -51,8 +51,42 @@ namespace Patina.Editor
 
         public static string FindServerBinary()
         {
-            return TryGetActiveRuntimePath(out string runtimePath) ? runtimePath : string.Empty;
+            if (TryGetActiveRuntimePath(out string runtimePath))
+            {
+#if !UNITY_EDITOR_WIN
+                EnsureExecutablePermission(runtimePath);
+#endif
+                return runtimePath;
+            }
+            return string.Empty;
         }
+
+#if !UNITY_EDITOR_WIN
+        private static void EnsureExecutablePermission(string binaryPath)
+        {
+            try
+            {
+                if (File.Exists(binaryPath))
+                {
+                    var startInfo = new System.Diagnostics.ProcessStartInfo
+                    {
+                        FileName = "chmod",
+                        Arguments = "+x \"" + binaryPath + "\"",
+                        UseShellExecute = false,
+                        CreateNoWindow = true
+                    };
+                    using (var process = System.Diagnostics.Process.Start(startInfo))
+                    {
+                        process?.WaitForExit();
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                UnityEngine.Debug.LogWarning($"[Patina] Failed to set executable permission on {binaryPath}: {ex.Message}");
+            }
+        }
+#endif
 
         public static string GetClaudeDesktopConfigPath()
         {
