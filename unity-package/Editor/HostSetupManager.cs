@@ -88,6 +88,22 @@ namespace Patina.Editor
                 binaryPath,
                 environment.GeminiDetected));
 
+            results.Add(SetupJsonHost(
+                "antigravity-cli",
+                "Antigravity CLI",
+                environment.AntigravityCliConfigPath,
+                "mcpServers",
+                binaryPath,
+                environment.AntigravityCliDetected));
+
+            results.Add(SetupJsonHost(
+                "antigravity",
+                "Antigravity (IDE)",
+                environment.AntigravityConfigPath,
+                "mcpServers",
+                binaryPath,
+                environment.AntigravityDetected));
+
             results.Add(CreateCopilotLinkedResult(vscodeResult));
             return results;
         }
@@ -104,6 +120,8 @@ namespace Patina.Editor
                 RemoveJsonHost("vscode", "Visual Studio Code", environment.VisualStudioCodeConfigPath, "servers", environment.VisualStudioCodeDetected),
                 RemoveJsonHost("rider", "JetBrains Junie / Rider", environment.JunieConfigPath, "mcpServers", environment.JunieDetected),
                 RemoveJsonHost("gemini-cli", "Gemini CLI", environment.GeminiConfigPath, "mcpServers", environment.GeminiDetected),
+                RemoveJsonHost("antigravity-cli", "Antigravity CLI", environment.AntigravityCliConfigPath, "mcpServers", environment.AntigravityCliDetected),
+                RemoveJsonHost("antigravity", "Antigravity (IDE)", environment.AntigravityConfigPath, "mcpServers", environment.AntigravityDetected),
                 RemoveCopilotLinkedResult(environment.VisualStudioCodeConfigPath, environment.VisualStudioCodeDetected)
             };
 
@@ -697,7 +715,12 @@ namespace Patina.Editor
                 GeminiDetected = Directory.Exists(Path.Combine(userProfile, ".gemini")) || FindPathHints("gemini.exe", "gemini").Count > 0,
                 CodexDetected = File.Exists(Path.Combine(userProfile, ".codex", "config.toml"))
                                 || Directory.Exists(Path.Combine(userProfile, ".codex"))
-                                || FindPathHints("codex.exe", "codex").Count > 0
+                                || FindPathHints("codex.exe", "codex").Count > 0,
+                AntigravityCliConfigPath = Path.Combine(userProfile, ".gemini", "antigravity-cli", "mcp_config.json"),
+                AntigravityCliDetected = Directory.Exists(Path.Combine(userProfile, ".gemini", "antigravity-cli"))
+                                      || FindPathHints("antigravity-cli.exe", "antigravity-cli", "antigravity.exe", "antigravity").Count > 0,
+                AntigravityConfigPath = Path.Combine(userProfile, ".gemini", "antigravity", "mcp_config.json"),
+                AntigravityDetected = Directory.Exists(Path.Combine(userProfile, ".gemini", "antigravity"))
             };
         }
 
@@ -739,6 +762,10 @@ namespace Patina.Editor
             public bool JunieDetected { get; set; }
             public string GeminiConfigPath { get; set; }
             public bool GeminiDetected { get; set; }
+            public string AntigravityCliConfigPath { get; set; }
+            public bool AntigravityCliDetected { get; set; }
+            public string AntigravityConfigPath { get; set; }
+            public bool AntigravityDetected { get; set; }
         }
     }
 }
