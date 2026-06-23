@@ -53,7 +53,6 @@ Copy-DirectoryContent -Source $resolvedSource -Destination $OutputPath
 $targets = @(
     @{ Artifact = "patina-server-x86_64-win"; PluginDir = "x86_64-win"; Binary = "patina-server.exe" },
     @{ Artifact = "patina-server-x86_64-linux"; PluginDir = "x86_64-linux"; Binary = "patina-server" },
-    @{ Artifact = "patina-server-x86_64-macos"; PluginDir = "x86_64-macos"; Binary = "patina-server" },
     @{ Artifact = "patina-server-aarch64-macos"; PluginDir = "aarch64-macos"; Binary = "patina-server" }
 )
 
@@ -80,7 +79,6 @@ $requiredPaths = @(
     "Editor/Patina.Editor.asmdef",
     "Plugins/x86_64-win/patina-server.exe",
     "Plugins/x86_64-linux/patina-server",
-    "Plugins/x86_64-macos/patina-server",
     "Plugins/aarch64-macos/patina-server"
 )
 

@@ -62,11 +62,7 @@ jobs:
             artifact-name: patina-server-x86_64-linux
             output-name: patina-server
             binary-path: rust-server/target/x86_64-unknown-linux-gnu/release/patina-server
-          - os: macos-13
-            rust-target: x86_64-apple-darwin
-            artifact-name: patina-server-x86_64-macos
-            output-name: patina-server
-            binary-path: rust-server/target/x86_64-apple-darwin/release/patina-server
+
           - os: macos-14
             rust-target: aarch64-apple-darwin
             artifact-name: patina-server-aarch64-macos
@@ -327,5 +323,4 @@ jobs:
             dist/*.zip
             artifacts/patina-server-x86_64-win/patina-server.exe
             artifacts/patina-server-x86_64-linux/patina-server
-            artifacts/patina-server-x86_64-macos/patina-server
             artifacts/patina-server-aarch64-macos/patina-server
