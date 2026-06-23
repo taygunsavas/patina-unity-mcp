@@ -2,9 +2,7 @@
 rust-server/target/
 
 # Unity
-unity-package/Plugins/*/*.exe
-unity-package/Plugins/*/*.so
-unity-package/Plugins/*/*.dylib
+
 
 # IDE
 .idea/
