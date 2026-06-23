@@ -14,19 +14,19 @@ use crate::tools::{
     DeleteAssetArgs, DeleteGameObjectArgs, DuplicateGameObjectArgs, EndUndoGroupArgs,
     ExecuteMenuItemArgs, FindAssetsByNameArgs, FindAssetsByTypeArgs,
     FindGameObjectsByComponentArgs, FindGameObjectsByLayerArgs, FindGameObjectsByPathArgs,
-    FindGameObjectsByTagArgs, ForceRecompileArgs, GetAssetInfoArgs, GetAssemblyTypesArgs,
-    GetBuildSettingsArgs, GetCompilationErrorsArgs, GetConsoleLogsArgs, GetEditorStateArgs,
-    GetGameObjectComponentsArgs, GetGameObjectInfoArgs, GetHierarchyArgs,
+    FindGameObjectsByTagArgs, ForceRecompileArgs, GetAnimatorInfoArgs, GetAssemblyTypesArgs,
+    GetAssetInfoArgs, GetBuildSettingsArgs, GetCompilationErrorsArgs, GetConsoleLogsArgs,
+    GetEditorStateArgs, GetGameObjectComponentsArgs, GetGameObjectInfoArgs, GetHierarchyArgs,
     GetMaterialPropertiesArgs, GetPlayerSettingsArgs, GetPrefabInfoArgs, GetProjectSettingsArgs,
-    GetSceneInfoArgs, GetSceneStatsArgs, GetSelectionArgs, GetUndoStackArgs, InstantiatePrefabArgs,
-    LogToConsoleArgs, MoveAssetArgs, NewSceneArgs, OpenSceneArgs, QueryGameObjectsArgs,
-    RedoArgs, RefreshAssetDatabaseArgs, RemoveComponentArgs, RenameAssetArgs,
-    ReparentGameObjectArgs, RevertPrefabOverridesArgs, SaveSceneArgs, SetActiveStateArgs,
-    SetAssetLabelsArgs, SetBuildScenesArgs, SetBuildTargetArgs, GetScriptContentArgs,
-    GetAnimatorInfoArgs, GetScriptableObjectArgs, GetTestListArgs, GetTestResultsArgs,
-    ListAnimationClipsArgs, RunTestsArgs, SetAnimatorParameterArgs, SetScriptableObjectFieldArgs,
-    SetLayerArgs, SetMaterialPropertyArgs, SetPlayModeArgs, SetPlayerSettingsArgs, SetPropertyArgs,
-    SetSelectionArgs, SetTagArgs, SetTransformArgs, UndoArgs, UnpackPrefabArgs, ValidateSceneArgs,
+    GetSceneInfoArgs, GetSceneStatsArgs, GetScriptContentArgs, GetScriptableObjectArgs,
+    GetSelectionArgs, GetTestListArgs, GetTestResultsArgs, GetUndoStackArgs, InstantiatePrefabArgs,
+    ListAnimationClipsArgs, LogToConsoleArgs, MoveAssetArgs, NewSceneArgs, OpenSceneArgs,
+    QueryGameObjectsArgs, RedoArgs, RefreshAssetDatabaseArgs, RemoveComponentArgs, RenameAssetArgs,
+    ReparentGameObjectArgs, RevertPrefabOverridesArgs, RunTestsArgs, SaveSceneArgs,
+    SetActiveStateArgs, SetAnimatorParameterArgs, SetAssetLabelsArgs, SetBuildScenesArgs,
+    SetBuildTargetArgs, SetLayerArgs, SetMaterialPropertyArgs, SetPlayModeArgs,
+    SetPlayerSettingsArgs, SetPropertyArgs, SetScriptableObjectFieldArgs, SetSelectionArgs,
+    SetTagArgs, SetTransformArgs, UndoArgs, UnpackPrefabArgs, ValidateSceneArgs,
 };
 
 #[derive(Clone)]
@@ -1052,7 +1052,8 @@ impl UnityMcpServer {
     ) -> Result<CallToolResult, McpError> {
         let params = serde_json::to_value(&args)
             .map_err(|e| McpError::internal_error(e.to_string(), None))?;
-        self.call_bridge("set_scriptable_object_field", params).await
+        self.call_bridge("set_scriptable_object_field", params)
+            .await
     }
 
     // === Sprint 5 — STO-38: Test Runner Integration ===
