@@ -35,6 +35,24 @@ jobs:
           }
           Write-Host "Package layout OK."
 
+      - name: Validate Unity metadata
+        shell: pwsh
+        run: |
+          $missing = @()
+          Get-ChildItem -Path "unity-package/Editor" -Recurse -File -Include "*.cs", "*.asmdef" | ForEach-Object {
+            $metaPath = "$($_.FullName).meta"
+            if (-not (Test-Path $metaPath)) {
+              $missing += $_.FullName
+            }
+          }
+
+          if ($missing.Count -gt 0) {
+            $relative = $missing | ForEach-Object { Resolve-Path $_ -Relative }
+            throw "Missing Unity metadata files for: $($relative -join ', ')"
+          }
+
+          Write-Host "Unity metadata OK."
+
   rust:
     runs-on: ubuntu-latest
     steps:
