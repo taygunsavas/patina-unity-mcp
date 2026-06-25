@@ -10,23 +10,26 @@ use crate::bridge::BridgeClient;
 use crate::tools::{
     AddComponentArgs, ApplyPrefabOverridesArgs, AssignMaterialArgs, BatchAddComponentsArgs,
     BatchSetPropertiesArgs, BatchSetTransformArgs, BeginUndoGroupArgs, ClearConsoleArgs,
-    CreateFolderArgs, CreateGameObjectArgs, CreateMaterialArgs, CreatePrefabArgs, CreateScriptArgs,
-    DeleteAssetArgs, DeleteGameObjectArgs, DuplicateGameObjectArgs, EndUndoGroupArgs,
-    ExecuteMenuItemArgs, FindAssetsByNameArgs, FindAssetsByTypeArgs,
-    FindGameObjectsByComponentArgs, FindGameObjectsByLayerArgs, FindGameObjectsByPathArgs,
-    FindGameObjectsByTagArgs, ForceRecompileArgs, GetAnimatorInfoArgs, GetAssemblyTypesArgs,
-    GetAssetInfoArgs, GetBuildSettingsArgs, GetCompilationErrorsArgs, GetConsoleLogsArgs,
-    GetEditorStateArgs, GetGameObjectComponentsArgs, GetGameObjectInfoArgs, GetHierarchyArgs,
+    ClosePrefabStageArgs, CompileAndGetErrorsArgs, CreateFolderArgs, CreateGameObjectArgs,
+    CreateMaterialArgs, CreatePrefabArgs, CreateScriptArgs, DeleteAssetArgs, DeleteGameObjectArgs,
+    DuplicateGameObjectArgs, EditPrefabAssetArgs, EndUndoGroupArgs, ExecuteMenuItemArgs,
+    FindAssetsByNameArgs, FindAssetsByTypeArgs, FindGameObjectsByComponentArgs,
+    FindGameObjectsByLayerArgs, FindGameObjectsByPathArgs, FindGameObjectsByTagArgs,
+    ForceRecompileArgs, GetAnimatorInfoArgs, GetAssemblyTypesArgs, GetAssetInfoArgs,
+    GetBuildSettingsArgs, GetCompilationErrorsArgs, GetConsoleLogsArgs, GetEditorStateArgs,
+    GetGameObjectComponentsArgs, GetGameObjectInfoArgs, GetHierarchyArgs,
     GetMaterialPropertiesArgs, GetPlayerSettingsArgs, GetPrefabInfoArgs, GetProjectSettingsArgs,
     GetSceneInfoArgs, GetSceneStatsArgs, GetScriptContentArgs, GetScriptableObjectArgs,
     GetSelectionArgs, GetTestListArgs, GetTestResultsArgs, GetUndoStackArgs, InstantiatePrefabArgs,
-    ListAnimationClipsArgs, LogToConsoleArgs, MoveAssetArgs, NewSceneArgs, OpenSceneArgs,
-    QueryGameObjectsArgs, RedoArgs, RefreshAssetDatabaseArgs, RemoveComponentArgs, RenameAssetArgs,
-    ReparentGameObjectArgs, RevertPrefabOverridesArgs, RunTestsArgs, SaveSceneArgs,
+    ListAnimationClipsArgs, ListPrefabComponentsArgs, LogToConsoleArgs, MoveAssetArgs,
+    NewSceneArgs, OpenPrefabStageArgs, OpenSceneArgs, QueryGameObjectsArgs, RedoArgs,
+    RefreshAssetDatabaseArgs, RemoveComponentArgs, RenameAssetArgs, ReparentGameObjectArgs,
+    ResolveScriptTypeArgs, RevertPrefabOverridesArgs, RunTestsArgs, SaveSceneArgs,
     SetActiveStateArgs, SetAnimatorParameterArgs, SetAssetLabelsArgs, SetBuildScenesArgs,
     SetBuildTargetArgs, SetLayerArgs, SetMaterialPropertyArgs, SetPlayModeArgs,
     SetPlayerSettingsArgs, SetPropertyArgs, SetScriptableObjectFieldArgs, SetSelectionArgs,
-    SetTagArgs, SetTransformArgs, UndoArgs, UnpackPrefabArgs, ValidateSceneArgs,
+    SetTagArgs, SetTransformArgs, UndoArgs, UnpackPrefabArgs, ValidateAssetsArgs,
+    ValidateSceneArgs,
 };
 
 #[derive(Clone)]
@@ -1136,6 +1139,97 @@ impl UnityMcpServer {
         let params = serde_json::to_value(&args)
             .map_err(|e| McpError::internal_error(e.to_string(), None))?;
         self.call_bridge("list_animation_clips", params).await
+    }
+
+    #[tool(
+        name = "compile_and_get_errors",
+        description = "Clear compilation errors, trigger a Unity script compilation via AssetDatabase.Refresh, wait for completion, and return compilation errors only. Returns {errorCount, warningCount, errors:[...]}. Max 500 issues."
+    )]
+    async fn compile_and_get_errors(
+        &self,
+        Parameters(args): Parameters<CompileAndGetErrorsArgs>,
+    ) -> Result<CallToolResult, McpError> {
+        let params = serde_json::to_value(&args)
+            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
+        self.call_bridge("compile_and_get_errors", params).await
+    }
+
+    #[tool(
+        name = "resolve_script_type",
+        description = "Resolve a MonoScript GUID and asset path by its fully qualified C# type. Returns {guid, assetPath, found}."
+    )]
+    async fn resolve_script_type(
+        &self,
+        Parameters(args): Parameters<ResolveScriptTypeArgs>,
+    ) -> Result<CallToolResult, McpError> {
+        let params = serde_json::to_value(&args)
+            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
+        self.call_bridge("resolve_script_type", params).await
+    }
+
+    #[tool(
+        name = "list_prefab_components",
+        description = "List component types and instance IDs on a prefab asset by its asset path and an optional relative transform path. Returns {assetPath, transformPath, components:[{type, instanceId}]}."
+    )]
+    async fn list_prefab_components(
+        &self,
+        Parameters(args): Parameters<ListPrefabComponentsArgs>,
+    ) -> Result<CallToolResult, McpError> {
+        let params = serde_json::to_value(&args)
+            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
+        self.call_bridge("list_prefab_components", params).await
+    }
+
+    #[tool(
+        name = "edit_prefab_asset",
+        description = "Perform a batch of edit operations (add_component, remove_component, add_child, remove_child, set_field) on a prefab asset. Automatically saves and forces reimport. Returns {success, changedAssets:[...]}."
+    )]
+    async fn edit_prefab_asset(
+        &self,
+        Parameters(args): Parameters<EditPrefabAssetArgs>,
+    ) -> Result<CallToolResult, McpError> {
+        let params = serde_json::to_value(&args)
+            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
+        self.call_bridge("edit_prefab_asset", params).await
+    }
+
+    #[tool(
+        name = "open_prefab_stage",
+        description = "Open a prefab asset in Unity's prefab stage for editing. Returns {success, stagePath}."
+    )]
+    async fn open_prefab_stage(
+        &self,
+        Parameters(args): Parameters<OpenPrefabStageArgs>,
+    ) -> Result<CallToolResult, McpError> {
+        let params = serde_json::to_value(&args)
+            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
+        self.call_bridge("open_prefab_stage", params).await
+    }
+
+    #[tool(
+        name = "close_prefab_stage",
+        description = "Close Unity's current active prefab stage, optionally saving changes. Returns {success, saved, changedAssets:[...]}."
+    )]
+    async fn close_prefab_stage(
+        &self,
+        Parameters(args): Parameters<ClosePrefabStageArgs>,
+    ) -> Result<CallToolResult, McpError> {
+        let params = serde_json::to_value(&args)
+            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
+        self.call_bridge("close_prefab_stage", params).await
+    }
+
+    #[tool(
+        name = "validate_assets",
+        description = "Validate a single prefab asset or a folder recursively for missing scripts, broken object references, and unassigned required serialized fields. Returns {issueCount, truncated, issues:[{assetPath, transformPath, component, field, issueType, severity}]}."
+    )]
+    async fn validate_assets(
+        &self,
+        Parameters(args): Parameters<ValidateAssetsArgs>,
+    ) -> Result<CallToolResult, McpError> {
+        let params = serde_json::to_value(&args)
+            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
+        self.call_bridge("validate_assets", params).await
     }
 }
 

@@ -50,3 +50,54 @@ pub struct RevertPrefabOverridesArgs {
     /// Name of the scene GameObject whose overrides to revert to prefab defaults.
     pub game_object_name: String,
 }
+
+#[derive(Debug, Deserialize, Serialize, JsonSchema)]
+pub struct EditPrefabAssetArgs {
+    /// Asset path, e.g. "Assets/Prefabs/MyPrefab.prefab".
+    pub asset_path: String,
+    /// Actions to run sequentially on the loaded prefab.
+    pub actions: Vec<EditPrefabAssetAction>,
+}
+
+#[derive(Debug, Deserialize, Serialize, JsonSchema)]
+pub struct EditPrefabAssetAction {
+    /// Action type: "add_component", "remove_component", "add_child", "remove_child", "set_field".
+    pub action_type: String,
+    /// Relative transform path, e.g. "Child/Grandchild" (optional, default root).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub transform_path: Option<String>,
+    /// Component type (required for add_component, remove_component, set_field).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub component_type: Option<String>,
+    /// Field name (required for set_field).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub field_name: Option<String>,
+    /// Field value (required for set_field).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub value: Option<serde_json::Value>,
+    /// Child GameObject name (required for add_child).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub child_name: Option<String>,
+}
+
+#[derive(Debug, Deserialize, Serialize, JsonSchema)]
+pub struct ListPrefabComponentsArgs {
+    /// Asset path, e.g. "Assets/Prefabs/MyPrefab.prefab".
+    pub asset_path: String,
+    /// Relative transform path, e.g. "Child/Grandchild" (optional, default root).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub transform_path: Option<String>,
+}
+
+#[derive(Debug, Deserialize, Serialize, JsonSchema)]
+pub struct OpenPrefabStageArgs {
+    /// Asset path, e.g. "Assets/Prefabs/MyPrefab.prefab".
+    pub asset_path: String,
+}
+
+#[derive(Debug, Deserialize, Serialize, JsonSchema)]
+pub struct ClosePrefabStageArgs {
+    /// Save changes before closing the stage. Defaults to false.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub save_changes: Option<bool>,
+}

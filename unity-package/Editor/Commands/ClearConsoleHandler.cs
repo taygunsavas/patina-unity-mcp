@@ -15,6 +15,7 @@ namespace Patina.Editor.Commands
                 if (logEntries == null || clearMethod == null)
                     throw new System.Exception("Could not access LogEntries.Clear via reflection");
 
+                ConsoleLogBuffer.Clear();
                 clearMethod.Invoke(null, null);
                 return null;
             });

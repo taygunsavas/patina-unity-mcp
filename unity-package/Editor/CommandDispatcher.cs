@@ -145,6 +145,15 @@ namespace Patina.Editor
             RegisterHandler("get_animator_info", new GetAnimatorInfoHandler());
             RegisterHandler("set_animator_parameter", new SetAnimatorParameterHandler());
             RegisterHandler("list_animation_clips", new ListAnimationClipsHandler());
+
+            // Wishlist Enhancements
+            RegisterHandler("compile_and_get_errors", new CompileAndGetErrorsHandler());
+            RegisterHandler("resolve_script_type", new ResolveScriptTypeHandler());
+            RegisterHandler("list_prefab_components", new ListPrefabComponentsHandler());
+            RegisterHandler("edit_prefab_asset", new EditPrefabAssetHandler());
+            RegisterHandler("open_prefab_stage", new OpenPrefabStageHandler());
+            RegisterHandler("close_prefab_stage", new ClosePrefabStageHandler());
+            RegisterHandler("validate_assets", new ValidateAssetsHandler());
         }
 
         public static int HandlerCount

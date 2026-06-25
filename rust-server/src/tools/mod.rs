@@ -48,7 +48,8 @@ pub use material::{
 };
 pub use player_settings::{GetPlayerSettingsArgs, SetBuildTargetArgs, SetPlayerSettingsArgs};
 pub use prefab::{
-    ApplyPrefabOverridesArgs, CreatePrefabArgs, GetPrefabInfoArgs, InstantiatePrefabArgs,
+    ApplyPrefabOverridesArgs, ClosePrefabStageArgs, CreatePrefabArgs, EditPrefabAssetArgs,
+    GetPrefabInfoArgs, InstantiatePrefabArgs, ListPrefabComponentsArgs, OpenPrefabStageArgs,
     RevertPrefabOverridesArgs, UnpackPrefabArgs,
 };
 pub use query::{FindGameObjectsByPathArgs, QueryGameObjectsArgs};
@@ -56,12 +57,13 @@ pub use scene::{
     GetBuildSettingsArgs, GetSceneInfoArgs, NewSceneArgs, OpenSceneArgs, SaveSceneArgs,
     SetBuildScenesArgs,
 };
-pub use script::CreateScriptArgs;
+pub use script::{CreateScriptArgs, ResolveScriptTypeArgs};
 pub use scriptable_object::{GetScriptableObjectArgs, SetScriptableObjectFieldArgs};
 pub use scripting_diag::{
-    ForceRecompileArgs, GetAssemblyTypesArgs, GetCompilationErrorsArgs, GetScriptContentArgs,
+    CompileAndGetErrorsArgs, ForceRecompileArgs, GetAssemblyTypesArgs, GetCompilationErrorsArgs,
+    GetScriptContentArgs,
 };
 pub use selection::{GetSelectionArgs, SetSelectionArgs};
 pub use test_runner::{GetTestListArgs, GetTestResultsArgs, RunTestsArgs};
 pub use undo::{BeginUndoGroupArgs, EndUndoGroupArgs, GetUndoStackArgs, RedoArgs, UndoArgs};
-pub use validation::{GetSceneStatsArgs, ValidateSceneArgs};
+pub use validation::{GetSceneStatsArgs, ValidateAssetsArgs, ValidateSceneArgs};

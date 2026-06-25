@@ -10,12 +10,14 @@ namespace Patina.Editor
             public string Type { get; }
             public string Message { get; }
             public string StackTrace { get; }
+            public string Timestamp { get; }
 
-            public LogEntry(string type, string message, string stackTrace)
+            public LogEntry(string type, string message, string stackTrace, string timestamp)
             {
                 Type = type;
                 Message = message;
                 StackTrace = stackTrace;
+                Timestamp = timestamp;
             }
         }
 
@@ -48,7 +50,8 @@ namespace Patina.Editor
                     break;
             }
 
-            var entry = new LogEntry(type, message, stackTrace);
+            string timestamp = System.DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss.fff");
+            var entry = new LogEntry(type, message, stackTrace, timestamp);
 
             lock (_lock)
             {
@@ -56,6 +59,16 @@ namespace Patina.Editor
                 _head = (_head + 1) % BufferSize;
                 if (_count < BufferSize)
                     _count++;
+            }
+        }
+
+        public static void Clear()
+        {
+            lock (_lock)
+            {
+                System.Array.Clear(_buffer, 0, _buffer.Length);
+                _head = 0;
+                _count = 0;
             }
         }
 

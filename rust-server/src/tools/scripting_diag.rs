@@ -21,3 +21,6 @@ pub struct GetAssemblyTypesArgs {
 
 #[derive(Debug, Deserialize, Serialize, JsonSchema)]
 pub struct ForceRecompileArgs {}
+
+#[derive(Debug, Deserialize, Serialize, JsonSchema)]
+pub struct CompileAndGetErrorsArgs {}

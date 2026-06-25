@@ -28,7 +28,8 @@ namespace Patina.Editor.Commands
                 var obj = new JObject
                 {
                     ["type"] = entry.Type,
-                    ["message"] = entry.Message
+                    ["message"] = entry.Message,
+                    ["timestamp"] = entry.Timestamp
                 };
                 if (includeStackTrace)
                     obj["stackTrace"] = entry.StackTrace;

@@ -17,3 +17,9 @@ pub struct CreateScriptArgs {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub content: Option<String>,
 }
+
+#[derive(Debug, Deserialize, Serialize, JsonSchema)]
+pub struct ResolveScriptTypeArgs {
+    /// Fully qualified class name, e.g. "MyNamespace.MyComponent".
+    pub type_name: String,
+}

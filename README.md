@@ -22,14 +22,10 @@ The host launches the Rust binary over stdio MCP. The Rust server forwards tool 
 ## Quick Start
 
 ### 1. Install the Unity package
-In Unity 6, add the Patina scoped registry in Package Manager settings, then install `com.taygunsavas.patina-unity-mcp`.
-
-**OpenUPM Registry Configuration:**
-- **Name:** `OpenUPM`
-- **URL:** `https://package.openupm.com`
-- **Scope(s):** `com.taygunsavas.patina-unity-mcp`
-
-Alternatively, you can install the package by downloading the `.tgz` tarball from the latest [GitHub Release](https://github.com/taygunsavas/patina-unity-mcp/releases) and selecting **Add package from tarball...** in the Unity Package Manager.
+In Unity, open the **Package Manager** (Window > Package Manager), click the **+** icon in the top left, select **Add package from git URL...**, and enter the following:
+```
+https://github.com/taygunsavas/patina-unity-mcp.git?path=/unity-package
+```
 
 Patina is distributed as a complete Unity package artifact with the editor code, native Rust runtime binaries under `Plugins/<platform>/`, and the Unity metadata needed for import. End users do not need the Rust toolchain or a Git checkout of this repository.
 
@@ -88,6 +84,10 @@ Open your MCP host and try:
 | `unpack_prefab` | Sever a prefab instance link; `outermost` (default) or `completely` |
 | `apply_prefab_overrides` | Apply all instance overrides back to the source prefab asset on disk |
 | `revert_prefab_overrides` | Restore a prefab instance to match its source asset |
+| `list_prefab_components` | List component types and instance IDs on a prefab asset |
+| `edit_prefab_asset` | Perform a batch of edit operations (add/remove component, add/remove child, set field) on a prefab asset |
+| `open_prefab_stage` | Open a prefab asset in Unity's prefab stage for editing |
+| `close_prefab_stage` | Close Unity's current active prefab stage, optionally saving changes |
 
 ### Assets
 
@@ -117,6 +117,20 @@ Open your MCP host and try:
 | Tool | What it does |
 |------|-------------|
 | `create_script` | Create a new C# script from a template (`monobehaviour`, `scriptableobject`, `editor_window`, `plain_class`, `interface`) or verbatim content |
+| `resolve_script_type` | Resolve a MonoScript GUID and asset path by its fully qualified C# type |
+| `force_recompile` | Trigger a Unity script recompile via `AssetDatabase.Refresh(ForceUpdate)` |
+| `compile_and_get_errors` | Trigger script recompile and return compiler errors only |
+| `get_compilation_errors` | Get the list of current compiler errors and warnings |
+| `get_script_content` | Read the content of a script file in the project |
+| `get_assembly_types` | List all types declared in a specific assembly |
+
+### Validation & Health
+
+| Tool | What it does |
+|------|-------------|
+| `validate_scene` | Scan the active scene for quality issues (missing script references, null serialized fields, and broken prefab connections) |
+| `validate_assets` | Validate a single prefab asset or a folder recursively for missing scripts, broken object references, and unassigned required serialized fields |
+| `get_scene_stats` | Return lightweight statistics for the active scene (object count, component count, unique type counts, max depth, etc.) |
 
 ### Search
 
@@ -159,6 +173,7 @@ Open your MCP host and try:
 
 | Host | Setup |
 |------|-------|
+| Antigravity CLI (agy) | Automatic |
 | Claude Code (Anthropic CLI) | Automatic (`~/.claude.json`) |
 | Claude Desktop | Automatic |
 | Cursor | Automatic |
@@ -237,8 +252,9 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for the full contributor workflow.
 
 ## Distribution Channels
 
-- OpenUPM and npm-compatible scoped registries are the primary install channels.
-- GitHub Releases provide secondary downloadable package artifacts and release notes.
+- Git URL via Unity Package Manager is the primary installation channel.
+- OpenUPM and npm-compatible scoped registries are secondary registry channels.
+- GitHub Releases provide downloadable package artifacts and release notes.
 - Unity Asset Store is a separate release target and is not the primary install path for technical users.
 
 ## License
