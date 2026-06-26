@@ -40,7 +40,17 @@ Open your MCP host and try:
 - *"Show me the scene hierarchy"*
 - *"Create a cube at position 0, 2, 0"*
 
-## Available Tools
+## Available Capabilities
+
+Patina keeps the advertised MCP surface compact so hosts do not need to load every Unity command schema into context. Agents should use:
+
+| MCP tool | What it does |
+|------|-------------|
+| `patina_capabilities` | Search or browse the Unity command catalog; request schemas only for specific commands |
+| `patina_call` | Execute a catalog command with JSON parameters |
+| `patina_health` | Inspect Patina version, command count, bridge port, and optional Unity editor state |
+
+The commands below are available through `patina_capabilities` and `patina_call`.
 
 ### Scene
 

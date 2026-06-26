@@ -32,6 +32,10 @@ impl BridgeClient {
         })
     }
 
+    pub fn port(&self) -> u16 {
+        self.port
+    }
+
     pub async fn connect(self: &Arc<Self>) -> anyhow::Result<()> {
         let mut backoff = Duration::from_millis(500);
         let max_backoff = Duration::from_secs(30);

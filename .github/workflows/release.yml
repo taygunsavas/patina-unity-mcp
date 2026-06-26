@@ -87,6 +87,10 @@ jobs:
         working-directory: rust-server
         run: cargo build --release --target ${{ matrix.rust-target }}
 
+      - name: Verify runtime command catalog
+        shell: pwsh
+        run: ./scripts/check-active-tools.ps1 -BinaryPath "${{ matrix.binary-path }}" -Port 9800
+
       - name: Stage binary artifact
         shell: pwsh
         run: |

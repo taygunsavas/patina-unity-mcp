@@ -1,6 +1,7 @@
 pub mod animation;
 pub mod asset;
 pub mod batch;
+pub mod catalog;
 pub mod component;
 pub mod console;
 pub mod editor;

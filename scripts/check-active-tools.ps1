@@ -8,14 +8,20 @@ $ErrorActionPreference = "Stop"
 function Read-ExpectedToolNames {
     param(
         [Parameter(Mandatory = $true)]
-        [string]$ServerPath
+        [string]$CatalogPath
     )
 
-    $matches = Select-String -Path $ServerPath -Pattern '^\s*name\s*=\s*"([^"]+)"' -AllMatches
+    $lines = Get-Content -Path $CatalogPath
     $names = New-Object System.Collections.Generic.List[string]
-    foreach ($match in $matches) {
-        foreach ($capture in $match.Matches) {
-            $names.Add($capture.Groups[1].Value)
+    $insideCommandMacro = $false
+    foreach ($line in $lines) {
+        if ($line -match 'command!\(') {
+            $insideCommandMacro = $true
+        }
+
+        if ($insideCommandMacro -and $line -match '"([^"]+)"') {
+            $names.Add($Matches[1])
+            $insideCommandMacro = $false
         }
     }
 
@@ -66,7 +72,8 @@ function Wait-ForResponse {
 }
 
 $resolvedBinary = (Resolve-Path $BinaryPath).Path
-$expectedToolNames = Read-ExpectedToolNames -ServerPath "rust-server/src/server.rs"
+$expectedCommandNames = Read-ExpectedToolNames -CatalogPath "rust-server/src/tools/catalog.rs"
+$expectedAdvertisedTools = @("patina_call", "patina_capabilities", "patina_health") | Sort-Object -Unique
 
 $process = New-Object System.Diagnostics.Process
 $process.StartInfo = New-Object System.Diagnostics.ProcessStartInfo
@@ -124,24 +131,65 @@ try {
     }
 
     $actualToolNames = @($toolsResponse.result.tools | ForEach-Object { $_.name } | Sort-Object -Unique)
-    $missing = @($expectedToolNames | Where-Object { $_ -notin $actualToolNames })
-    $extra = @($actualToolNames | Where-Object { $_ -notin $expectedToolNames })
+    $missingAdvertised = @($expectedAdvertisedTools | Where-Object { $_ -notin $actualToolNames })
+    $extraAdvertised = @($actualToolNames | Where-Object { $_ -notin $expectedAdvertisedTools })
 
     Write-Host "Binary        : $resolvedBinary"
-    Write-Host "Expected tools: $($expectedToolNames.Count)"
-    Write-Host "Actual tools  : $($actualToolNames.Count)"
-    Write-Host "Tool names    : $($actualToolNames -join ', ')"
+    Write-Host "Advertised expected tools: $($expectedAdvertisedTools.Count)"
+    Write-Host "Advertised actual tools  : $($actualToolNames.Count)"
+    Write-Host "Advertised tool names    : $($actualToolNames -join ', ')"
 
-    if ($missing.Count -gt 0 -or $extra.Count -gt 0) {
-        if ($missing.Count -gt 0) {
-            Write-Host "Missing tools : $($missing -join ', ')"
+    if ($missingAdvertised.Count -gt 0 -or $extraAdvertised.Count -gt 0) {
+        if ($missingAdvertised.Count -gt 0) {
+            Write-Host "Missing advertised tools : $($missingAdvertised -join ', ')"
         }
 
-        if ($extra.Count -gt 0) {
-            Write-Host "Extra tools   : $($extra -join ', ')"
+        if ($extraAdvertised.Count -gt 0) {
+            Write-Host "Extra advertised tools   : $($extraAdvertised -join ', ')"
         }
 
-        throw "Active runtime tool set does not match source definitions."
+        throw "Active runtime advertised MCP tool set does not match compact surface definitions."
+    }
+
+    Write-McpMessage -Writer $inputWriter -Payload @{
+        jsonrpc = "2.0"
+        id = "capabilities"
+        method = "tools/call"
+        params = @{
+            name = "patina_capabilities"
+            arguments = @{}
+        }
+    }
+
+    $capabilitiesResponse = Wait-ForResponse -Reader $outputReader -Id "capabilities"
+    if ($null -eq $capabilitiesResponse.result) {
+        throw "patina_capabilities failed: $($capabilitiesResponse | ConvertTo-Json -Depth 20 -Compress)"
+    }
+
+    $contentItem = @($capabilitiesResponse.result.content | Where-Object { $_.type -eq "text" } | Select-Object -First 1)
+    if ($null -eq $contentItem -or [string]::IsNullOrWhiteSpace($contentItem.text)) {
+        throw "patina_capabilities did not return text JSON: $($capabilitiesResponse | ConvertTo-Json -Depth 20 -Compress)"
+    }
+
+    $catalog = $contentItem.text | ConvertFrom-Json
+    $actualCommandNames = @($catalog.commands | ForEach-Object { $_.name } | Sort-Object -Unique)
+    $missingCommands = @($expectedCommandNames | Where-Object { $_ -notin $actualCommandNames })
+    $extraCommands = @($actualCommandNames | Where-Object { $_ -notin $expectedCommandNames })
+
+    Write-Host "Expected commands: $($expectedCommandNames.Count)"
+    Write-Host "Actual commands  : $($actualCommandNames.Count)"
+    Write-Host "Command names    : $($actualCommandNames -join ', ')"
+
+    if ($missingCommands.Count -gt 0 -or $extraCommands.Count -gt 0) {
+        if ($missingCommands.Count -gt 0) {
+            Write-Host "Missing commands : $($missingCommands -join ', ')"
+        }
+
+        if ($extraCommands.Count -gt 0) {
+            Write-Host "Extra commands   : $($extraCommands -join ', ')"
+        }
+
+        throw "Active runtime Patina command catalog does not match source definitions."
     }
 }
 finally {

@@ -1,6 +1,6 @@
 {
   "name": "com.taygunsavas.patina-unity-mcp",
-  "version": "1.1.1",
+  "version": "1.1.2",
   "displayName": "Patina Unity MCP",
   "description": "Local TCP bridge for MCP server communication with Unity Editor",
   "unity": "6000.3",
