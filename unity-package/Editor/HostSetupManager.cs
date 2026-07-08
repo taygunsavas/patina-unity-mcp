@@ -716,8 +716,8 @@ namespace Patina.Editor
                 CodexDetected = File.Exists(Path.Combine(userProfile, ".codex", "config.toml"))
                                 || Directory.Exists(Path.Combine(userProfile, ".codex"))
                                 || FindPathHints("codex.exe", "codex").Count > 0,
-                AntigravityCliConfigPath = Path.Combine(userProfile, ".gemini", "antigravity-cli", "mcp_config.json"),
-                AntigravityCliDetected = Directory.Exists(Path.Combine(userProfile, ".gemini", "antigravity-cli"))
+                AntigravityCliConfigPath = Path.Combine(userProfile, ".gemini", "config", "mcp_config.json"),
+                AntigravityCliDetected = Directory.Exists(Path.Combine(userProfile, ".gemini", "config"))
                                       || FindPathHints("antigravity-cli.exe", "antigravity-cli", "antigravity.exe", "antigravity").Count > 0,
                 AntigravityConfigPath = Path.Combine(userProfile, ".gemini", "antigravity", "mcp_config.json"),
                 AntigravityDetected = Directory.Exists(Path.Combine(userProfile, ".gemini", "antigravity"))
@@ -769,4 +769,3 @@ namespace Patina.Editor
         }
     }
 }
-
