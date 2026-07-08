@@ -247,8 +247,6 @@ The setup window also detects stale entries, missing hosts, and provides a clean
 | **Phase 2** ✓ | Expanded coverage: scene management, asset operations, component editing |
 | **Phase 3** (current) | Distribution and reach: Git URL installation docs, package layout, release pipeline |
 
-For the public contributor-facing roadmap, see [ROADMAP.md](ROADMAP.md).
-
 ## Release Flow
 
 1. Keep `rust-server/Cargo.toml` and `unity-package/package.json` on the same semantic version.
@@ -294,7 +292,6 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for the full contributor workflow.
 - Read [.github/SUPPORT.md](.github/SUPPORT.md) before opening a help request.
 - Read [.github/SECURITY.md](.github/SECURITY.md) for private vulnerability reporting.
 - Read [.github/CODE_OF_CONDUCT.md](.github/CODE_OF_CONDUCT.md) before participating in issues and pull requests.
-- Read [ROADMAP.md](ROADMAP.md) for current public priorities and direction.
 - Pull requests targeting `main` are expected to pass CI and go through CODEOWNERS + Copilot review once repository rules are enabled.
 
 ## Requirements

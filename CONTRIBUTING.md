@@ -13,7 +13,7 @@ Patina keeps source and release artifacts separate:
 ## Before You Start
 
 - Read `README.md` for the product overview and install model.
-- Check `ROADMAP.md` and existing issues before starting larger work.
+- Check existing issues before starting larger work.
 - If you plan to change behavior, release flow, or public tooling contracts, open or comment on an issue first so the approach can be aligned early.
 - For support questions or setup trouble, prefer the GitHub support-oriented issue form instead of opening an unfocused bug.
 
@@ -90,7 +90,7 @@ cargo test
 
 - Keep each pull request focused on a single concern.
 - Link the related issue or explain why no issue exists.
-- Update `README.md`, `ROADMAP.md`, or `.github/` guidance when contributor or user-facing behavior changes.
+- Update `README.md` or `.github/` guidance when contributor or user-facing behavior changes.
 - Include the commands you ran and any Unity-side manual checks in the PR description.
 - Add screenshots or logs when changing setup UX, package import behavior, or editor window output.
 - Pull requests to `main` should be prepared for required CI, CODEOWNERS review, and automatic Copilot review.
@@ -109,7 +109,7 @@ cargo test
 - The release workflow assembles the full Unity package artifact and publishes it to registry channels.
 - GitHub Releases are secondary artifacts and release notes, not the primary install surface.
 - Unity `6000.3.5f2+` is the validated minimum for release verification; Package Manager signed-package behavior was stabilized at that patch level.
-- For the full step-by-step release process, required secrets, and post-release validation checklist, see [RELEASING.md](RELEASING.md).
+- Keep release runbooks in maintainer-owned channels and update this section when public release behavior changes.
 
 ### Asset Store
 
