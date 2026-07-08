@@ -80,23 +80,23 @@ impl UnityMcpServer {
                             })
                         })
                         .unwrap_or_else(|| "OK".to_string());
-                    Ok(CallToolResult::success(vec![Content::text(text)]))
+                    Ok(CallToolResult::success(vec![ContentBlock::text(text)]))
                 } else {
                     let err_msg = response
                         .error
                         .map(|e| format!("[{}] {}", e.code, e.message))
                         .unwrap_or_else(|| "Unknown bridge error".to_string());
-                    Ok(CallToolResult::error(vec![Content::text(err_msg)]))
+                    Ok(CallToolResult::error(vec![ContentBlock::text(err_msg)]))
                 }
             }
-            Err(e) => Ok(CallToolResult::error(vec![Content::text(e)])),
+            Err(e) => Ok(CallToolResult::error(vec![ContentBlock::text(e)])),
         }
     }
 
     fn json_result(value: Value) -> Result<CallToolResult, McpError> {
         let text = serde_json::to_string(&value)
             .map_err(|e| McpError::internal_error(e.to_string(), None))?;
-        Ok(CallToolResult::success(vec![Content::text(text)]))
+        Ok(CallToolResult::success(vec![ContentBlock::text(text)]))
     }
 }
 
@@ -112,7 +112,7 @@ impl UnityMcpServer {
     ) -> Result<CallToolResult, McpError> {
         if let Some(command) = args.command.as_deref() {
             if catalog::find_command(command).is_none() {
-                return Ok(CallToolResult::error(vec![Content::text(format!(
+                return Ok(CallToolResult::error(vec![ContentBlock::text(format!(
                     "Unknown Patina command: {}",
                     command
                 ))]));
@@ -137,7 +137,7 @@ impl UnityMcpServer {
         Parameters(args): Parameters<PatinaCallArgs>,
     ) -> Result<CallToolResult, McpError> {
         if catalog::find_command(&args.command).is_none() {
-            return Ok(CallToolResult::error(vec![Content::text(format!(
+            return Ok(CallToolResult::error(vec![ContentBlock::text(format!(
                 "Unknown Patina command: {}",
                 args.command
             ))]));
