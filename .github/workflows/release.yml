@@ -1,70 +1,64 @@
 name: release
 
 on:
-  workflow_dispatch:
-    inputs:
-      version:
-        description: "Release version tag, e.g. v1.0.0"
-        required: true
-        type: string
-      publish_npm:
-        description: "Publish the packaged Unity artifact to the configured npm-compatible registry"
-        required: true
-        type: boolean
-        default: true
-      publish_openupm:
-        description: "Publish the packaged Unity artifact to the configured OpenUPM-compatible registry"
-        required: true
-        type: boolean
-        default: true
-      create_github_release:
-        description: "Create a GitHub release with the packaged Unity artifact and raw binaries"
-        required: true
-        type: boolean
-        default: true
+  push:
+    tags:
+      - "v*"
 
 permissions:
   contents: write
 
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   verify:
+    if: ${{ startsWith(github.ref, 'refs/tags/v') }}
     runs-on: ubuntu-latest
     outputs:
+      tag: ${{ steps.version.outputs.tag }}
       version: ${{ steps.version.outputs.version }}
     steps:
       - name: Checkout
         uses: actions/checkout@v7
         with:
           fetch-depth: 0
+          ref: ${{ github.ref_name }}
 
       - name: Verify version sync
         shell: pwsh
-        run: ./scripts/assert-version-sync.ps1 -Tag "${{ inputs.version }}"
+        run: ./scripts/assert-version-sync.ps1 -Tag "${{ github.ref_name }}"
 
       - name: Resolve version
         id: version
         shell: pwsh
         run: |
-          $version = "${{ inputs.version }}".TrimStart("v")
+          $tag = "${{ github.ref_name }}"
+          if ($tag -notmatch '^v[0-9]+\.[0-9]+\.[0-9]+(-[A-Za-z0-9._-]+)?$') {
+            throw "Release tag must be SemVer formatted, for example v1.2.3 or v1.2.3-beta.1."
+          }
+
+          $version = $tag.TrimStart("v")
+          "tag=$tag" >> $env:GITHUB_OUTPUT
           "version=$version" >> $env:GITHUB_OUTPUT
 
   generate-changelog:
     needs: verify
-    if: ${{ inputs.create_github_release }}
     runs-on: ubuntu-latest
     steps:
       - name: Checkout release tag
         uses: actions/checkout@v7
         with:
           fetch-depth: 0
-          ref: ${{ inputs.version }}
+          ref: ${{ needs.verify.outputs.tag }}
 
       - name: Generate changelog
         shell: bash
         run: |
           set -euo pipefail
 
-          CURRENT_TAG='${{ inputs.version }}'
+          CURRENT_TAG='${{ needs.verify.outputs.tag }}'
           VERSION='${{ needs.verify.outputs.version }}'
 
           if [[ ! "$CURRENT_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[A-Za-z0-9._-]+)?$ ]]; then
@@ -363,7 +357,6 @@ jobs:
     needs:
       - verify
       - package-upm
-    if: ${{ inputs.publish_npm }}
     runs-on: ubuntu-latest
     env:
       NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
@@ -430,7 +423,6 @@ jobs:
     needs:
       - verify
       - package-upm
-    if: ${{ inputs.publish_openupm }}
     runs-on: ubuntu-latest
     env:
       OPENUPM_TOKEN: ${{ secrets.OPENUPM_TOKEN }}
@@ -500,7 +492,6 @@ jobs:
       - build-binaries
       - generate-changelog
       - package-upm
-    if: ${{ inputs.create_github_release }}
     runs-on: ubuntu-latest
     steps:
       - name: Download binary artifacts
@@ -523,7 +514,7 @@ jobs:
       - name: Publish GitHub release assets
         uses: softprops/action-gh-release@v3
         with:
-          tag_name: ${{ inputs.version }}
+          tag_name: ${{ needs.verify.outputs.tag }}
           body_path: CHANGELOG.md
           files: |
             CHANGELOG.md

@@ -100,6 +100,14 @@ impl UnityMcpServer {
     }
 }
 
+const SERVER_INSTRUCTIONS: &str = concat!(
+    "Patina exposes a compact Unity MCP surface. ",
+    "Use patina_capabilities to discover commands, then patina_call to execute them. ",
+    "For Patina bugs, missing commands, or workflow gaps, ask the user before filing feedback. ",
+    "With approval, follow repository rules, search existing issues, avoid duplicates, and include versions, host, repro steps, expected/actual behavior, and relevant errors. ",
+    "Issues: https://github.com/taygunsavas/patina-unity-mcp/issues"
+);
+
 #[tool_router]
 impl UnityMcpServer {
     #[tool(
@@ -198,9 +206,7 @@ impl ServerHandler for UnityMcpServer {
         info.server_info = Implementation::default();
         info.server_info.name = "patina".into();
         info.server_info.version = env!("CARGO_PKG_VERSION").into();
-        info.instructions = Some(
-            "Patina exposes a compact Unity MCP surface. Use patina_capabilities to discover commands, then patina_call to execute them.".into(),
-        );
+        info.instructions = Some(SERVER_INSTRUCTIONS.into());
         info.capabilities = ServerCapabilities::builder().enable_tools().build();
         info
     }
