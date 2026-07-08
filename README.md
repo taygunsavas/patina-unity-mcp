@@ -22,8 +22,25 @@ The host launches the Rust binary over stdio MCP. The Rust server forwards tool 
 ## Quick Start
 
 ### 1. Install the Unity package
-In Unity, open the **Package Manager** (Window > Package Manager), click the **+** icon in the top left, select **Add package from git URL...**, and enter the following:
+In Unity, open **Project Settings > Package Manager**, add a scoped registry, then install the package by name.
+
+Scoped registry:
+
+| Field | Value |
+|------|-------|
+| Name | `npmjs` |
+| URL | `https://registry.npmjs.org` |
+| Scope(s) | `com.taygunsavas` |
+
+Then open the **Package Manager** (Window > Package Manager), click the **+** icon in the top left, select **Add package by name...**, and enter:
+
+```text
+com.taygunsavas.patina-unity-mcp
 ```
+
+Alternatively, open the **Package Manager**, click the **+** icon, select **Add package from git URL...**, and enter:
+
+```text
 https://github.com/taygunsavas/patina-unity-mcp.git?path=/unity-package
 ```
 
@@ -247,13 +264,6 @@ The setup window also detects stale entries, missing hosts, and provides a clean
 | **Phase 2** ✓ | Expanded coverage: scene management, asset operations, component editing |
 | **Phase 3** (current) | Distribution and reach: Git URL installation docs, package layout, release pipeline |
 
-## Release Flow
-
-1. Keep `rust-server/Cargo.toml` and `unity-package/package.json` on the same semantic version.
-2. Run the **release** workflow with a version tag like `v1.0.0`.
-3. CI builds cross-platform binaries, assembles a complete Unity package artifact, validates the package layout, and uploads GitHub Release assets.
-4. End users install the package through Unity Package Manager's **Add package from git URL...** flow. No Rust toolchain is required.
-
 ## Local Development
 
 ### Contributor source checkout
@@ -299,16 +309,6 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for the full contributor workflow.
 - Unity 6 (6000.3 LTS+)
 - A supported MCP host
 - Rust 1.75+ (contributors only)
-
-## Distribution Channels
-
-Git URL via Unity Package Manager is the supported installation channel:
-
-```text
-https://github.com/taygunsavas/patina-unity-mcp.git?path=/unity-package
-```
-
-GitHub Releases provide release notes and packaged runtime assets for the Git URL package flow.
 
 ## License
 
