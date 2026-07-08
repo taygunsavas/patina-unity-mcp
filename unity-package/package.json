@@ -1,11 +1,16 @@
 {
   "name": "com.taygunsavas.patina-unity-mcp",
-  "version": "1.1.4",
+  "version": "1.1.5",
+  "mcpName": "io.github.taygunsavas/patina-unity-mcp",
   "displayName": "Patina Unity MCP",
   "description": "Local TCP bridge for MCP server communication with Unity Editor",
   "unity": "6000.3",
   "license": "MIT",
-  "author": { "name": "Patina" },
+  "author": {
+    "name": "Taygun Savas",
+    "email": "info@taygunsavas.com",
+    "url": "https://github.com/taygunsavas"
+  },
   "repository": {
     "type": "git",
     "url": "https://github.com/taygunsavas/patina-unity-mcp.git",

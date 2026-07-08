@@ -7,6 +7,7 @@ on:
 
 permissions:
   contents: write
+  id-token: write
 
 concurrency:
   group: release-${{ github.ref }}
@@ -358,6 +359,8 @@ jobs:
       - verify
       - package-upm
     runs-on: ubuntu-latest
+    outputs:
+      should_publish: ${{ steps.preflight.outputs.should_publish }}
     env:
       NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
       NPM_REGISTRY_URL: ${{ vars.NPM_REGISTRY_URL }}
@@ -418,6 +421,31 @@ jobs:
 
           $env:NPM_CONFIG_USERCONFIG = $tempNpmrc
           npm publish $tarball --access public --registry $registryUrl
+
+  publish-mcp-registry:
+    needs:
+      - verify
+      - publish-npm
+    if: ${{ needs.publish-npm.outputs.should_publish == 'true' }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout release tag
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.verify.outputs.tag }}
+
+      - name: Install mcp-publisher
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl -L "https://github.com/modelcontextprotocol/registry/releases/latest/download/mcp-publisher_$(uname -s | tr '[:upper:]' '[:lower:]')_$(uname -m | sed 's/x86_64/amd64/;s/aarch64/arm64/').tar.gz" | tar xz mcp-publisher
+
+      - name: Publish to MCP Registry
+        shell: bash
+        run: |
+          set -euo pipefail
+          ./mcp-publisher login github-oidc
+          ./mcp-publisher publish
 
   publish-openupm:
     needs:
