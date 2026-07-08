@@ -50,7 +50,7 @@ Patina keeps the advertised MCP surface compact so hosts do not need to load eve
 | `patina_call` | Execute a catalog command with JSON parameters |
 | `patina_health` | Inspect Patina version, command count, bridge port, and optional Unity editor state |
 
-The commands below are available through `patina_capabilities` and `patina_call`.
+The 86 commands below are available through `patina_capabilities` and `patina_call`.
 
 ### Scene
 
@@ -83,6 +83,15 @@ The commands below are available through `patina_capabilities` and `patina_call`
 | `add_component` | Add a component by short name (`Rigidbody`) or fully qualified name |
 | `remove_component` | Remove a component by type name |
 | `set_property` | Set any serialized property on a component using its SerializedObject path |
+| `get_game_object_components` | Return a lightweight component list for a GameObject |
+
+### Batch Operations
+
+| Tool | What it does |
+|------|-------------|
+| `batch_set_properties` | Apply serialized property changes across multiple GameObjects |
+| `batch_add_components` | Add components to multiple GameObjects |
+| `batch_set_transform` | Apply transform changes to multiple GameObjects |
 
 ### Prefabs
 
@@ -134,6 +143,13 @@ The commands below are available through `patina_capabilities` and `patina_call`
 | `get_script_content` | Read the content of a script file in the project |
 | `get_assembly_types` | List all types declared in a specific assembly |
 
+### Scriptable Objects
+
+| Tool | What it does |
+|------|-------------|
+| `get_scriptable_object` | Read serialized fields from a ScriptableObject asset |
+| `set_scriptable_object_field` | Set one serialized ScriptableObject field |
+
 ### Validation & Health
 
 | Tool | What it does |
@@ -142,13 +158,15 @@ The commands below are available through `patina_capabilities` and `patina_call`
 | `validate_assets` | Validate a single prefab asset or a folder recursively for missing scripts, broken object references, and unassigned required serialized fields |
 | `get_scene_stats` | Return lightweight statistics for the active scene (object count, component count, unique type counts, max depth, etc.) |
 
-### Search
+### Search & Query
 
 | Tool | What it does |
 |------|-------------|
 | `find_game_objects_by_tag` | Find all active GameObjects with a given tag |
 | `find_game_objects_by_component` | Find all scene objects that have a given component type |
 | `find_game_objects_by_layer` | Find all scene objects on a given layer by name |
+| `query_game_objects` | Find GameObjects matching compound filters |
+| `find_game_objects_by_path` | Find GameObjects by hierarchy path prefix |
 
 ### Console
 
@@ -169,6 +187,16 @@ The commands below are available through `patina_capabilities` and `patina_call`
 | `get_selection` | Return the current Editor selection (scene objects and/or asset paths) |
 | `set_selection` | Set the Editor selection to specific GameObjects and/or asset paths |
 
+### Undo
+
+| Tool | What it does |
+|------|-------------|
+| `begin_undo_group` | Open a named Unity Undo group |
+| `end_undo_group` | Collapse operations into the current Undo group |
+| `undo` | Perform one or more Undo steps |
+| `redo` | Perform one or more Redo steps |
+| `get_undo_stack` | Return current Undo and Redo stack entry names |
+
 ### Build & Player Settings
 
 | Tool | What it does |
@@ -178,6 +206,22 @@ The commands below are available through `patina_capabilities` and `patina_call`
 | `get_player_settings` | Read Player Settings for a build target group (Standalone, Android, iOS, WebGL) |
 | `set_player_settings` | Write Player Settings fields; only non-null fields are changed |
 | `set_build_target` | Switch the active build target (blocks the main thread on large projects) |
+
+### Test Runner
+
+| Tool | What it does |
+|------|-------------|
+| `run_tests` | Start a Unity Test Runner execution |
+| `get_test_results` | Return results from the most recent test run |
+| `get_test_list` | List available Unity tests |
+
+### Animation
+
+| Tool | What it does |
+|------|-------------|
+| `get_animator_info` | Read Animator Controller parameters and state information |
+| `set_animator_parameter` | Set an Animator parameter in play mode |
+| `list_animation_clips` | List AnimationClip assets in the project |
 
 ## Supported Hosts
 
@@ -201,7 +245,7 @@ The setup window also detects stale entries, missing hosts, and provides a clean
 |-------|-------|
 | **Phase 1** ✓ | Core tools: console, hierarchy, object creation |
 | **Phase 2** ✓ | Expanded coverage: scene management, asset operations, component editing |
-| **Phase 3** (current) | Distribution and reach: registry publishing, installation docs, release pipeline |
+| **Phase 3** (current) | Distribution and reach: Git URL installation docs, package layout, release pipeline |
 
 For the public contributor-facing roadmap, see [ROADMAP.md](ROADMAP.md).
 
@@ -209,8 +253,8 @@ For the public contributor-facing roadmap, see [ROADMAP.md](ROADMAP.md).
 
 1. Keep `rust-server/Cargo.toml` and `unity-package/package.json` on the same semantic version.
 2. Run the **release** workflow with a version tag like `v1.0.0`.
-3. CI builds cross-platform binaries, assembles a complete Unity package artifact, validates the package layout, publishes the package to registry channels, and uploads secondary GitHub Release assets.
-4. End users consume the published package artifact through registry-backed Unity Package Manager channels. No Rust toolchain or Git install path is required.
+3. CI builds cross-platform binaries, assembles a complete Unity package artifact, validates the package layout, and uploads GitHub Release assets.
+4. End users install the package through Unity Package Manager's **Add package from git URL...** flow. No Rust toolchain is required.
 
 ## Local Development
 
@@ -256,16 +300,18 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for the full contributor workflow.
 ## Requirements
 
 - Unity 6 (6000.3 LTS+)
-- Unity `6000.3.5f2+` is the validated minimum for reliable signed-package behavior in Package Manager; earlier 6000.3 patch releases may show signature warnings on first import from a scoped registry
 - A supported MCP host
 - Rust 1.75+ (contributors only)
 
 ## Distribution Channels
 
-- Git URL via Unity Package Manager is the primary installation channel.
-- OpenUPM and npm-compatible scoped registries are secondary registry channels.
-- GitHub Releases provide downloadable package artifacts and release notes.
-- Unity Asset Store is a separate release target and is not the primary install path for technical users.
+Git URL via Unity Package Manager is the supported installation channel:
+
+```text
+https://github.com/taygunsavas/patina-unity-mcp.git?path=/unity-package
+```
+
+GitHub Releases provide release notes and packaged runtime assets for the Git URL package flow.
 
 ## License
 
