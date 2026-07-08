@@ -34,6 +34,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
 
       - name: Verify version sync
         shell: pwsh
@@ -45,6 +47,205 @@ jobs:
         run: |
           $version = "${{ inputs.version }}".TrimStart("v")
           "version=$version" >> $env:GITHUB_OUTPUT
+
+  generate-changelog:
+    needs: verify
+    if: ${{ inputs.create_github_release }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout release tag
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          ref: ${{ inputs.version }}
+
+      - name: Generate changelog
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          CURRENT_TAG='${{ inputs.version }}'
+          VERSION='${{ needs.verify.outputs.version }}'
+
+          if [[ ! "$CURRENT_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[A-Za-z0-9._-]+)?$ ]]; then
+            echo "Release version must be SemVer formatted, for example v1.2.3 or v1.2.3-beta.1."
+            exit 1
+          fi
+
+          if ! git rev-parse -q --verify "refs/tags/$CURRENT_TAG" >/dev/null; then
+            echo "Tag $CURRENT_TAG does not exist in the repository."
+            exit 1
+          fi
+
+          PREVIOUS_TAG=$(git tag --sort=version:refname | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+' | awk -v current="$CURRENT_TAG" '$0 == current { print previous; found=1; exit } { previous=$0 } END { if (!found) exit 1 }' || true)
+          DATE_UTC=$(date -u '+%Y-%m-%d')
+
+          if [ -z "$PREVIOUS_TAG" ]; then
+            RANGE=""
+            RANGE_NOTE="Full commit history for the first tagged release."
+            COMPARE_NOTE="No previous SemVer tag was found."
+          else
+            RANGE="$PREVIOUS_TAG..$CURRENT_TAG"
+            RANGE_NOTE="Changes since $PREVIOUS_TAG."
+            COMPARE_NOTE="[Compare $PREVIOUS_TAG...$CURRENT_TAG](${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/compare/${PREVIOUS_TAG}...${CURRENT_TAG})"
+          fi
+
+          rm -rf changelog-sections
+          mkdir -p changelog-sections
+          for section in highlights breaking features fixes performance refactoring documentation tests build ci dependencies chores style other; do
+            : > "changelog-sections/$section.md"
+          done
+
+          clean_subject() {
+            local subject="$1"
+            subject=$(echo "$subject" | sed -E 's/^(feat|fix|perf|refactor|docs|test|tests|build|ci|chore|style)(\([^)]+\))?!?:[[:space:]]*//')
+            echo "$subject" | sed -E 's/^[[:space:]]+|[[:space:]]+$//g'
+          }
+
+          classify_subject() {
+            local subject="$1"
+            local deps_re='^build\(deps\):'
+            local bump_re='[Bb]ump[[:space:]]'
+            local feat_re='^feat(\([^)]+\))?!?:'
+            local fix_re='^fix(\([^)]+\))?!?:'
+            local perf_re='^perf(\([^)]+\))?!?:'
+            local refactor_re='^refactor(\([^)]+\))?!?:'
+            local docs_re='^docs(\([^)]+\))?!?:'
+            local tests_re='^test(s)?(\([^)]+\))?!?:'
+            local build_re='^build(\([^)]+\))?!?:'
+            local ci_re='^ci(\([^)]+\))?!?:'
+            local chore_re='^chore(\([^)]+\))?!?:'
+            local style_re='^style(\([^)]+\))?!?:'
+
+            if [[ "$subject" =~ $deps_re ]] || [[ "$subject" =~ $bump_re ]]; then
+              echo "dependencies"
+            elif [[ "$subject" =~ $feat_re ]]; then
+              echo "features"
+            elif [[ "$subject" =~ $fix_re ]]; then
+              echo "fixes"
+            elif [[ "$subject" =~ $perf_re ]]; then
+              echo "performance"
+            elif [[ "$subject" =~ $refactor_re ]]; then
+              echo "refactoring"
+            elif [[ "$subject" =~ $docs_re ]]; then
+              echo "documentation"
+            elif [[ "$subject" =~ $tests_re ]]; then
+              echo "tests"
+            elif [[ "$subject" =~ $build_re ]]; then
+              echo "build"
+            elif [[ "$subject" =~ $ci_re ]]; then
+              echo "ci"
+            elif [[ "$subject" =~ $chore_re ]]; then
+              echo "chores"
+            elif [[ "$subject" =~ $style_re ]]; then
+              echo "style"
+            else
+              echo "other"
+            fi
+          }
+
+          append_commit() {
+            local sha="$1"
+            local subject="$2"
+            local author="$3"
+            local section
+            local cleaned
+            local short_sha
+            local commit_url
+            local pr_number
+            local pr_text=""
+
+            section=$(classify_subject "$subject")
+            cleaned=$(clean_subject "$subject")
+            short_sha=$(git rev-parse --short "$sha")
+            commit_url="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/commit/${sha}"
+
+            if [[ "$subject" =~ \(\#([0-9]+)\)$ ]]; then
+              pr_number="${BASH_REMATCH[1]}"
+              pr_text=", [#${pr_number}](${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/pull/${pr_number})"
+              cleaned=$(echo "$cleaned" | sed -E 's/[[:space:]]*\(#[0-9]+\)$//')
+            fi
+
+            line="- ${cleaned} ([${short_sha}](${commit_url})${pr_text}, ${author})"
+            echo "$line" >> "changelog-sections/$section.md"
+
+            if [[ "$section" == "features" || "$section" == "fixes" ]]; then
+              echo "$line" >> changelog-sections/highlights.md
+            fi
+
+            local breaking_subject_re='^[a-z]+(\([^)]+\))?!:'
+            if [[ "$subject" =~ $breaking_subject_re ]] || git show -s --format=%B "$sha" | grep -qi '^BREAKING CHANGE:'; then
+              echo "$line" >> changelog-sections/breaking.md
+            fi
+          }
+
+          git log $RANGE --no-merges --pretty=$'%H\t%s\t%an' | while IFS=$'\t' read -r sha subject author; do
+            [ -z "$sha" ] && continue
+            append_commit "$sha" "$subject" "$author"
+          done
+
+          {
+            echo "# Patina $CURRENT_TAG"
+            echo
+            echo "**Release date (UTC):** $DATE_UTC"
+            echo
+            echo "$RANGE_NOTE"
+            echo
+            echo "$COMPARE_NOTE"
+            echo
+            echo "## Artifact Notes"
+            echo
+            echo "- Primary install path: scoped registry package publication."
+            echo "- GitHub Releases are the secondary download channel."
+            echo "- Unity package version: \`$VERSION\`."
+            echo "- Included release assets: npm-compatible UPM tarball, zipped Unity package, and Windows/Linux/macOS Patina server binaries."
+            echo "- Recommended Unity baseline for signed-package reliability: 6000.3.5f2 or newer."
+            echo
+
+            section() {
+              local title="$1"
+              local file="$2"
+              if [ -s "$file" ]; then
+                echo "## $title"
+                echo
+                cat "$file"
+                echo
+              fi
+            }
+
+            section "Highlights" changelog-sections/highlights.md
+            section "Breaking Changes" changelog-sections/breaking.md
+            section "Features" changelog-sections/features.md
+            section "Fixes" changelog-sections/fixes.md
+            section "Performance" changelog-sections/performance.md
+            section "Refactoring" changelog-sections/refactoring.md
+            section "Documentation" changelog-sections/documentation.md
+            section "Tests" changelog-sections/tests.md
+            section "Build System" changelog-sections/build.md
+            section "CI" changelog-sections/ci.md
+            section "Dependencies" changelog-sections/dependencies.md
+            section "Chores" changelog-sections/chores.md
+            section "Style" changelog-sections/style.md
+            section "Other Changes" changelog-sections/other.md
+
+            if ! grep -q '^- ' changelog-sections/*.md; then
+              echo "## Changes"
+              echo
+              echo "_No commit changes detected for this release range._"
+              echo
+            fi
+
+            echo "---"
+            echo
+            echo "_Generated automatically by GitHub Actions._"
+          } > CHANGELOG.md
+
+      - name: Upload changelog
+        uses: actions/upload-artifact@v7
+        with:
+          name: release-changelog
+          path: CHANGELOG.md
+          if-no-files-found: error
 
   build-binaries:
     needs: verify
@@ -297,6 +498,7 @@ jobs:
     needs:
       - verify
       - build-binaries
+      - generate-changelog
       - package-upm
     if: ${{ inputs.create_github_release }}
     runs-on: ubuntu-latest
@@ -312,17 +514,19 @@ jobs:
           name: patina-release-bundles
           path: dist
 
+      - name: Download release changelog
+        uses: actions/download-artifact@v8
+        with:
+          name: release-changelog
+          path: .
+
       - name: Publish GitHub release assets
         uses: softprops/action-gh-release@v3
         with:
           tag_name: ${{ inputs.version }}
-          generate_release_notes: true
-          body: |
-            Secondary release channel for Patina.
-
-            Primary install path: scoped registry package publication.
-            Recommended Unity baseline for signed-package reliability: 6000.3.5f2 or newer.
+          body_path: CHANGELOG.md
           files: |
+            CHANGELOG.md
             dist/*.tgz
             dist/*.zip
             artifacts/patina-server-x86_64-win/patina-server.exe
