@@ -105,6 +105,8 @@ namespace Patina.Editor.Commands
                 return double.Parse(jsonValue, CultureInfo.InvariantCulture);
             if (targetType == typeof(string))
                 return jsonValue.Trim('"');
+            if (targetType.IsEnum)
+                return Enum.Parse(targetType, jsonValue.Trim('"'), ignoreCase: true);
 
             return Convert.ChangeType(jsonValue, targetType, CultureInfo.InvariantCulture);
         }
