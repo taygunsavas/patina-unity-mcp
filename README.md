@@ -3,6 +3,7 @@
 [![npm version](https://img.shields.io/npm/v/com.taygunsavas.patina-unity-mcp.svg)](https://www.npmjs.com/package/com.taygunsavas.patina-unity-mcp)
 [![MCP Registry](https://img.shields.io/badge/MCP%20Registry-io.github.taygunsavas%2Fpatina--unity--mcp-blue)](https://registry.modelcontextprotocol.io/v0.1/servers?search=io.github.taygunsavas/patina-unity-mcp)
 [![Glama MCP server](https://glama.ai/mcp/servers/taygunsavas/patina-unity-mcp/badges/score.svg)](https://glama.ai/mcp/servers/taygunsavas/patina-unity-mcp)
+[![Indexed on TensorBlock MCP Index](https://mcp-index.tensorblock.co/v1/servers/github-taygunsavas-patina-unity-mcp-8c8f04b5/badge.svg)](https://tensorblock.co/mcp/servers/github-taygunsavas-patina-unity-mcp-8c8f04b5)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
 Control the Unity Editor from any MCP host. One package install, one click, and your AI assistant can see your scene, create objects, and talk to the console.
