@@ -152,7 +152,7 @@ namespace Patina.Editor.Commands
             if (token.Type == JTokenType.String)
             {
                 try { return JArray.Parse(token.Value<string>()); }
-                catch { throw new ArgumentException($"{typeName} value must be a JSON array or a JSON-array-encoded string"); }
+                catch (Exception ex) { throw new ArgumentException($"{typeName} value must be a JSON array or a JSON-array-encoded string: {ex.Message}"); }
             }
             throw new ArgumentException($"{typeName} value must be an array");
         }
