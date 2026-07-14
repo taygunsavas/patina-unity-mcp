@@ -27,7 +27,7 @@ namespace Patina.Editor.Commands
             string capturedGoName = gameObjectName;
             string capturedCompType = componentType;
             string capturedPropName = propertyName;
-            string capturedValue = valueToken?.ToString() ?? "null";
+            JToken capturedValue = valueToken;
 
             JObject result = await MainThreadQueue.EnqueueAsync(() =>
             {
@@ -73,42 +73,60 @@ namespace Patina.Editor.Commands
             return result;
         }
 
-        private static object ConvertValue(string jsonValue, Type targetType)
+        private static object ConvertValue(JToken token, Type targetType)
         {
+            if (token == null || token.Type == JTokenType.Null)
+                throw new ArgumentException("value is required");
+
             if (targetType == typeof(Vector3))
             {
-                JArray arr = JArray.Parse(jsonValue);
-                return new Vector3(arr[0].Value<float>(), arr[1].Value<float>(), arr[2].Value<float>());
+                JArray a = ParseAsArray(token, "Vector3");
+                if (a.Count < 3) throw new ArgumentException("Vector3 requires at least 3 elements");
+                return new Vector3(a[0].Value<float>(), a[1].Value<float>(), a[2].Value<float>());
             }
             if (targetType == typeof(Vector2))
             {
-                JArray arr = JArray.Parse(jsonValue);
-                return new Vector2(arr[0].Value<float>(), arr[1].Value<float>());
+                JArray a = ParseAsArray(token, "Vector2");
+                if (a.Count < 2) throw new ArgumentException("Vector2 requires at least 2 elements");
+                return new Vector2(a[0].Value<float>(), a[1].Value<float>());
             }
             if (targetType == typeof(Color))
             {
-                JArray arr = JArray.Parse(jsonValue);
-                return new Color(arr[0].Value<float>(), arr[1].Value<float>(), arr[2].Value<float>(), arr.Count > 3 ? arr[3].Value<float>() : 1f);
+                JArray a = ParseAsArray(token, "Color");
+                if (a.Count < 3) throw new ArgumentException("Color requires at least 3 elements");
+                return new Color(a[0].Value<float>(), a[1].Value<float>(), a[2].Value<float>(), a.Count > 3 ? a[3].Value<float>() : 1f);
             }
             if (targetType == typeof(Quaternion))
             {
-                JArray arr = JArray.Parse(jsonValue);
-                return new Quaternion(arr[0].Value<float>(), arr[1].Value<float>(), arr[2].Value<float>(), arr[3].Value<float>());
+                JArray a = ParseAsArray(token, "Quaternion");
+                if (a.Count < 4) throw new ArgumentException("Quaternion requires at least 4 elements");
+                return new Quaternion(a[0].Value<float>(), a[1].Value<float>(), a[2].Value<float>(), a[3].Value<float>());
             }
             if (targetType == typeof(bool))
-                return bool.Parse(jsonValue);
+                return token.Value<bool>();
             if (targetType == typeof(int))
-                return int.Parse(jsonValue, CultureInfo.InvariantCulture);
+                return token.Value<int>();
             if (targetType == typeof(float))
-                return float.Parse(jsonValue, CultureInfo.InvariantCulture);
+                return token.Value<float>();
             if (targetType == typeof(double))
-                return double.Parse(jsonValue, CultureInfo.InvariantCulture);
+                return token.Value<double>();
             if (targetType == typeof(string))
-                return jsonValue.Trim('"');
+                return token.Value<string>();
             if (targetType.IsEnum)
-                return Enum.Parse(targetType, jsonValue.Trim('"'), ignoreCase: true);
+                return Enum.Parse(targetType, token.Value<string>(), ignoreCase: true);
 
-            return Convert.ChangeType(jsonValue, targetType, CultureInfo.InvariantCulture);
+            return Convert.ChangeType(token.Value<string>(), targetType, CultureInfo.InvariantCulture);
+        }
+
+        private static JArray ParseAsArray(JToken token, string typeName)
+        {
+            if (token is JArray arr) return arr;
+            if (token.Type == JTokenType.String)
+            {
+                try { return JArray.Parse(token.Value<string>()); }
+                catch (Exception ex) { throw new ArgumentException($"{typeName} value must be a JSON array or a JSON-array-encoded string: {ex.Message}"); }
+            }
+            throw new ArgumentException($"{typeName} value must be an array");
         }
     }
 }
