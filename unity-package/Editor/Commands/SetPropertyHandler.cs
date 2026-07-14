@@ -75,14 +75,33 @@ namespace Patina.Editor.Commands
 
         private static object ConvertValue(JToken token, Type targetType)
         {
-            if (targetType == typeof(Vector3) && token is JArray a3)
-                return new Vector3(a3[0].Value<float>(), a3[1].Value<float>(), a3[2].Value<float>());
-            if (targetType == typeof(Vector2) && token is JArray a2)
-                return new Vector2(a2[0].Value<float>(), a2[1].Value<float>());
-            if (targetType == typeof(Color) && token is JArray ac)
-                return new Color(ac[0].Value<float>(), ac[1].Value<float>(), ac[2].Value<float>(), ac.Count > 3 ? ac[3].Value<float>() : 1f);
-            if (targetType == typeof(Quaternion) && token is JArray aq)
-                return new Quaternion(aq[0].Value<float>(), aq[1].Value<float>(), aq[2].Value<float>(), aq[3].Value<float>());
+            if (token == null || token.Type == JTokenType.Null)
+                throw new ArgumentException("value is required");
+
+            if (targetType == typeof(Vector3))
+            {
+                JArray a = token as JArray ?? JArray.Parse(token.Value<string>());
+                if (a.Count < 3) throw new ArgumentException("Vector3 requires at least 3 elements");
+                return new Vector3(a[0].Value<float>(), a[1].Value<float>(), a[2].Value<float>());
+            }
+            if (targetType == typeof(Vector2))
+            {
+                JArray a = token as JArray ?? JArray.Parse(token.Value<string>());
+                if (a.Count < 2) throw new ArgumentException("Vector2 requires at least 2 elements");
+                return new Vector2(a[0].Value<float>(), a[1].Value<float>());
+            }
+            if (targetType == typeof(Color))
+            {
+                JArray a = token as JArray ?? JArray.Parse(token.Value<string>());
+                if (a.Count < 3) throw new ArgumentException("Color requires at least 3 elements");
+                return new Color(a[0].Value<float>(), a[1].Value<float>(), a[2].Value<float>(), a.Count > 3 ? a[3].Value<float>() : 1f);
+            }
+            if (targetType == typeof(Quaternion))
+            {
+                JArray a = token as JArray ?? JArray.Parse(token.Value<string>());
+                if (a.Count < 4) throw new ArgumentException("Quaternion requires at least 4 elements");
+                return new Quaternion(a[0].Value<float>(), a[1].Value<float>(), a[2].Value<float>(), a[3].Value<float>());
+            }
             if (targetType == typeof(bool))
                 return token.Value<bool>();
             if (targetType == typeof(int))
