@@ -27,7 +27,7 @@ namespace Patina.Editor.Commands
             string capturedGoName = gameObjectName;
             string capturedCompType = componentType;
             string capturedPropName = propertyName;
-            string capturedValue = valueToken?.ToString() ?? "null";
+            JToken capturedValue = valueToken;
 
             JObject result = await MainThreadQueue.EnqueueAsync(() =>
             {
@@ -73,42 +73,30 @@ namespace Patina.Editor.Commands
             return result;
         }
 
-        private static object ConvertValue(string jsonValue, Type targetType)
+        private static object ConvertValue(JToken token, Type targetType)
         {
-            if (targetType == typeof(Vector3))
-            {
-                JArray arr = JArray.Parse(jsonValue);
-                return new Vector3(arr[0].Value<float>(), arr[1].Value<float>(), arr[2].Value<float>());
-            }
-            if (targetType == typeof(Vector2))
-            {
-                JArray arr = JArray.Parse(jsonValue);
-                return new Vector2(arr[0].Value<float>(), arr[1].Value<float>());
-            }
-            if (targetType == typeof(Color))
-            {
-                JArray arr = JArray.Parse(jsonValue);
-                return new Color(arr[0].Value<float>(), arr[1].Value<float>(), arr[2].Value<float>(), arr.Count > 3 ? arr[3].Value<float>() : 1f);
-            }
-            if (targetType == typeof(Quaternion))
-            {
-                JArray arr = JArray.Parse(jsonValue);
-                return new Quaternion(arr[0].Value<float>(), arr[1].Value<float>(), arr[2].Value<float>(), arr[3].Value<float>());
-            }
+            if (targetType == typeof(Vector3) && token is JArray a3)
+                return new Vector3(a3[0].Value<float>(), a3[1].Value<float>(), a3[2].Value<float>());
+            if (targetType == typeof(Vector2) && token is JArray a2)
+                return new Vector2(a2[0].Value<float>(), a2[1].Value<float>());
+            if (targetType == typeof(Color) && token is JArray ac)
+                return new Color(ac[0].Value<float>(), ac[1].Value<float>(), ac[2].Value<float>(), ac.Count > 3 ? ac[3].Value<float>() : 1f);
+            if (targetType == typeof(Quaternion) && token is JArray aq)
+                return new Quaternion(aq[0].Value<float>(), aq[1].Value<float>(), aq[2].Value<float>(), aq[3].Value<float>());
             if (targetType == typeof(bool))
-                return bool.Parse(jsonValue);
+                return token.Value<bool>();
             if (targetType == typeof(int))
-                return int.Parse(jsonValue, CultureInfo.InvariantCulture);
+                return token.Value<int>();
             if (targetType == typeof(float))
-                return float.Parse(jsonValue, CultureInfo.InvariantCulture);
+                return token.Value<float>();
             if (targetType == typeof(double))
-                return double.Parse(jsonValue, CultureInfo.InvariantCulture);
+                return token.Value<double>();
             if (targetType == typeof(string))
-                return jsonValue.Trim('"');
+                return token.Value<string>();
             if (targetType.IsEnum)
-                return Enum.Parse(targetType, jsonValue.Trim('"'), ignoreCase: true);
+                return Enum.Parse(targetType, token.Value<string>(), ignoreCase: true);
 
-            return Convert.ChangeType(jsonValue, targetType, CultureInfo.InvariantCulture);
+            return Convert.ChangeType(token.Value<string>(), targetType, CultureInfo.InvariantCulture);
         }
     }
 }
