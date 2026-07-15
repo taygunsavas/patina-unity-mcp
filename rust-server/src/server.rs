@@ -1,9 +1,8 @@
 use std::sync::Arc;
 
 use rmcp::{
-    handler::server::wrapper::Parameters,
-    model::*,
-    tool, tool_handler, tool_router, ErrorData as McpError, ServerHandler,
+    handler::server::wrapper::Parameters, model::*, tool, tool_handler, tool_router,
+    ErrorData as McpError, ServerHandler,
 };
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
@@ -55,9 +54,7 @@ pub struct PatinaHealthArgs {
 
 impl UnityMcpServer {
     pub fn new(bridge: Arc<BridgeClient>) -> Self {
-        Self {
-            bridge,
-        }
+        Self { bridge }
     }
 
     async fn call_bridge(
