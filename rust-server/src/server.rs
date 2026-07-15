@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use rmcp::{
-    handler::server::{tool::ToolRouter, wrapper::Parameters},
+    handler::server::wrapper::Parameters,
     model::*,
     tool, tool_handler, tool_router, ErrorData as McpError, ServerHandler,
 };
@@ -15,8 +15,6 @@ use crate::tools::catalog;
 #[derive(Clone)]
 pub struct UnityMcpServer {
     bridge: Arc<BridgeClient>,
-    #[allow(dead_code)]
-    tool_router: ToolRouter<Self>,
 }
 
 #[derive(Debug, Deserialize, Serialize, JsonSchema)]
@@ -59,7 +57,6 @@ impl UnityMcpServer {
     pub fn new(bridge: Arc<BridgeClient>) -> Self {
         Self {
             bridge,
-            tool_router: Self::tool_router(),
         }
     }
 
