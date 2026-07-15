@@ -44,6 +44,8 @@ Then open the **Package Manager** (Window > Package Manager), click the **+** ic
 com.taygunsavas.patina-unity-mcp
 ```
 
+Registry releases are signed during the release workflow for Unity Package Manager verification.
+
 Alternatively, open the **Package Manager**, click the **+** icon, select **Add package from git URL...**, and enter:
 
 ```text

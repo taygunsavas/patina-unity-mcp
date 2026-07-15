@@ -6,8 +6,7 @@ on:
       - "v*"
 
 permissions:
-  contents: write
-  id-token: write
+  contents: read
 
 concurrency:
   group: release-${{ github.ref }}
@@ -323,15 +322,47 @@ jobs:
             -OutputPath "dist/unity-package" `
             -Version "${{ needs.verify.outputs.version }}"
 
-      - name: Setup Node.js
-        uses: actions/setup-node@v6
-        with:
-          node-version: 20
-
-      - name: Pack npm-compatible tarball
-        shell: pwsh
+      - name: Install UPM CLI
+        shell: bash
         run: |
-          npm pack ./dist/unity-package --pack-destination dist
+          set -euo pipefail
+          curl -fsSL https://cdn.packages.unity.com/upm-cli/install.sh -o /tmp/install-upm.sh
+          bash /tmp/install-upm.sh v9.31.1
+          echo "$HOME/.upm/bin" >> "$GITHUB_PATH"
+          "$HOME/.upm/bin/upm" --version
+
+      - name: Pack signed UPM tarball
+        shell: bash
+        env:
+          UPM_ORG_ID: ${{ secrets.UPM_ORG_ID }}
+          UPM_SERVICE_ACCOUNT_KEY_ID: ${{ secrets.UPM_SERVICE_ACCOUNT_KEY_ID }}
+          UPM_SERVICE_ACCOUNT_KEY_SECRET: ${{ secrets.UPM_SERVICE_ACCOUNT_KEY_SECRET }}
+        run: |
+          set -euo pipefail
+          for variable in UPM_ORG_ID UPM_SERVICE_ACCOUNT_KEY_ID UPM_SERVICE_ACCOUNT_KEY_SECRET; do
+            if [ -z "${!variable}" ]; then
+              echo "::error::Required signing credential $variable is not configured."
+              exit 1
+            fi
+          done
+
+          upm pack ./dist/unity-package --organization-id "$UPM_ORG_ID" --destination dist
+
+          shopt -s nullglob
+          archives=(dist/*.tgz)
+          if [ "${#archives[@]}" -ne 1 ]; then
+            echo "::error::Expected exactly one signed .tgz file in dist/, found ${#archives[@]}."
+            exit 1
+          fi
+
+          archive_entries=$(tar -tzf "${archives[0]}")
+          for required_entry in package/package.json package/.attestation.p7m; do
+            if ! grep -Fxq "$required_entry" <<< "$archive_entries"; then
+              echo "::error::Signed tarball is missing $required_entry."
+              exit 1
+            fi
+          done
+          echo "Signed tarball verified: ${archives[0]}"
 
       - name: Archive Unity package bundle
         shell: pwsh
@@ -359,39 +390,29 @@ jobs:
       - verify
       - package-upm
     runs-on: ubuntu-latest
-    outputs:
-      should_publish: ${{ steps.preflight.outputs.should_publish }}
     env:
       NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
       NPM_REGISTRY_URL: ${{ vars.NPM_REGISTRY_URL }}
     steps:
       - name: Check npm publish prerequisites
-        id: preflight
         shell: pwsh
         run: |
           if ([string]::IsNullOrWhiteSpace($env:NPM_TOKEN)) {
-            Write-Host "::notice title=npm publish skipped::NPM_TOKEN is not configured."
-            "should_publish=false" >> $env:GITHUB_OUTPUT
-            exit 0
+            throw "NPM_TOKEN is required to publish a release."
           }
 
-          "should_publish=true" >> $env:GITHUB_OUTPUT
-
       - name: Download release bundles
-        if: ${{ steps.preflight.outputs.should_publish == 'true' }}
         uses: actions/download-artifact@v8
         with:
           name: patina-release-bundles
           path: dist
 
       - name: Setup Node.js
-        if: ${{ steps.preflight.outputs.should_publish == 'true' }}
         uses: actions/setup-node@v6
         with:
           node-version: 20
 
       - name: Publish package to npm-compatible registry
-        if: ${{ steps.preflight.outputs.should_publish == 'true' }}
         shell: pwsh
         run: |
           $registryUrl = $env:NPM_REGISTRY_URL
@@ -399,10 +420,11 @@ jobs:
             $registryUrl = "https://registry.npmjs.org/"
           }
 
-          $tarball = Get-ChildItem dist -Filter *.tgz | Select-Object -First 1 -ExpandProperty FullName
-          if (-not $tarball) {
-            throw "Could not find packaged tarball to publish."
+          $tarballs = @(Get-ChildItem dist -Filter *.tgz -File)
+          if ($tarballs.Count -ne 1) {
+            throw "Expected exactly one packaged tarball to publish, found $($tarballs.Count)."
           }
+          $tarball = $tarballs[0].FullName
 
           $registryUri = [Uri]$registryUrl
           $registryPath = $registryUri.AbsolutePath.TrimEnd("/")
@@ -422,12 +444,43 @@ jobs:
           $env:NPM_CONFIG_USERCONFIG = $tempNpmrc
           npm publish $tarball --access public --registry $registryUrl
 
+      - name: Verify published npm tarball signature
+        shell: pwsh
+        run: |
+          $registryUrl = $env:NPM_REGISTRY_URL
+          if ([string]::IsNullOrWhiteSpace($registryUrl)) {
+            $registryUrl = "https://registry.npmjs.org/"
+          }
+
+          $packageName = "com.taygunsavas.patina-unity-mcp"
+          $packageVersion = "${{ needs.verify.outputs.version }}"
+          $verificationDirectory = Join-Path $env:RUNNER_TEMP "patina-npm-verification"
+          New-Item -ItemType Directory -Force -Path $verificationDirectory | Out-Null
+          npm pack "$packageName@$packageVersion" --pack-destination $verificationDirectory --registry $registryUrl
+
+          $tarballs = @(Get-ChildItem $verificationDirectory -Filter *.tgz -File)
+          if ($tarballs.Count -ne 1) {
+            throw "Expected exactly one published tarball, found $($tarballs.Count)."
+          }
+
+          $entries = @(tar -tzf $tarballs[0].FullName)
+          if ($LASTEXITCODE -ne 0) {
+            throw "Could not inspect the published tarball."
+          }
+          foreach ($requiredEntry in @("package/package.json", "package/.attestation.p7m")) {
+            if ($entries -notcontains $requiredEntry) {
+              throw "Published tarball is missing $requiredEntry."
+            }
+          }
+
   publish-mcp-registry:
     needs:
       - verify
       - publish-npm
-    if: ${{ needs.publish-npm.outputs.should_publish == 'true' }}
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
     steps:
       - name: Checkout release tag
         uses: actions/checkout@v7
@@ -447,80 +500,16 @@ jobs:
           ./mcp-publisher login github-oidc
           ./mcp-publisher publish
 
-  publish-openupm:
-    needs:
-      - verify
-      - package-upm
-    runs-on: ubuntu-latest
-    env:
-      OPENUPM_TOKEN: ${{ secrets.OPENUPM_TOKEN }}
-      OPENUPM_REGISTRY_URL: ${{ vars.OPENUPM_REGISTRY_URL }}
-    steps:
-      - name: Check OpenUPM publish prerequisites
-        id: preflight
-        shell: pwsh
-        run: |
-          if ([string]::IsNullOrWhiteSpace($env:OPENUPM_TOKEN)) {
-            Write-Host "::notice title=OpenUPM publish skipped::OPENUPM_TOKEN is not configured."
-            "should_publish=false" >> $env:GITHUB_OUTPUT
-            exit 0
-          }
-
-          if ([string]::IsNullOrWhiteSpace($env:OPENUPM_REGISTRY_URL)) {
-            Write-Host "::notice title=OpenUPM publish skipped::OPENUPM_REGISTRY_URL is not configured."
-            "should_publish=false" >> $env:GITHUB_OUTPUT
-            exit 0
-          }
-
-          "should_publish=true" >> $env:GITHUB_OUTPUT
-
-      - name: Download release bundles
-        if: ${{ steps.preflight.outputs.should_publish == 'true' }}
-        uses: actions/download-artifact@v8
-        with:
-          name: patina-release-bundles
-          path: dist
-
-      - name: Setup Node.js
-        if: ${{ steps.preflight.outputs.should_publish == 'true' }}
-        uses: actions/setup-node@v6
-        with:
-          node-version: 20
-
-      - name: Publish package to OpenUPM-compatible registry
-        if: ${{ steps.preflight.outputs.should_publish == 'true' }}
-        shell: pwsh
-        run: |
-          $tarball = Get-ChildItem dist -Filter *.tgz | Select-Object -First 1 -ExpandProperty FullName
-          if (-not $tarball) {
-            throw "Could not find packaged tarball to publish."
-          }
-
-          $registryUri = [Uri]$env:OPENUPM_REGISTRY_URL
-          $registryPath = $registryUri.AbsolutePath.TrimEnd("/")
-          $registryTokenKey = if ([string]::IsNullOrWhiteSpace($registryPath) -or $registryPath -eq "/") {
-            "//{0}/:_authToken" -f $registryUri.Authority
-          } else {
-            "//{0}{1}/:_authToken" -f $registryUri.Authority, $registryPath + "/"
-          }
-
-          $tempNpmrc = Join-Path $env:RUNNER_TEMP "patina-openupm-npmrc"
-          @(
-            "registry=$env:OPENUPM_REGISTRY_URL"
-            "$registryTokenKey=$env:OPENUPM_TOKEN"
-            "always-auth=true"
-          ) | Set-Content -Path $tempNpmrc -Encoding ascii
-
-          $env:NPM_CONFIG_USERCONFIG = $tempNpmrc
-          npm publish $tarball --access public --registry $env:OPENUPM_REGISTRY_URL
-
   github-release:
     needs:
       - verify
       - build-binaries
       - generate-changelog
       - package-upm
+      - publish-npm
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     steps:
       - name: Download binary artifacts
         uses: actions/download-artifact@v8
