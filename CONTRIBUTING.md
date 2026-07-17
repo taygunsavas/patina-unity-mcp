@@ -21,10 +21,12 @@ Patina keeps source and release artifacts separate:
 
 Contributors have an optional local runtime override for source-based iteration only:
 
-- Packaged runtime: the binary already bundled into the published Unity package.
+- Packaged runtime: the binary already bundled into the published Unity package and synchronized into a stable user-level managed runtime path for MCP host configs.
 - Local runtime override: a contributor-managed runtime under `dist/dev-runtime/current/<platform>/`.
 
 The local runtime override exists to avoid writing host configs directly against `rust-server/target/release/patina-server.exe` during local iteration. It is not the normal install path for registry users.
+
+Normal packaged installs write host configs to the managed runtime path, not directly to a project's `Library/PackageCache` binary. This keeps host entries stable when Unity changes the package cache folder during Patina updates.
 
 ## Contributor Loop
 
@@ -51,7 +53,7 @@ pwsh -File scripts/publish-dev-runtime.ps1
 
 5. Click `One-Click Setup`.
 
-This writes host configs against the contributor runtime path instead of the packaged runtime when that local runtime is available. Re-run steps 2 through 5 after every source change that affects the Rust binary or the Unity bridge.
+This writes host configs against the contributor runtime path instead of the managed packaged runtime when that local runtime is available. Re-run steps 2 through 5 after every source change that affects the Rust binary or the Unity bridge.
 
 6. When you need to clean up local host registrations, click `Remove Patina From Hosts`.
 
@@ -123,6 +125,7 @@ When preparing an Asset Store submission:
 ## Notes
 
 - `Use Local Runtime (Contributor)` is intended for contributors only.
-- Registry users should stay on the packaged runtime path.
-- If a host is still pointing to an older runtime path, re-run `One-Click Setup` after publishing the new dev runtime.
+- Registry users should stay on the managed packaged runtime path.
+- Packaged users should not need to rerun `One-Click Setup` only because a package update changed the Unity package cache path.
+- If a contributor host is still pointing to an older runtime path, re-run `One-Click Setup` after publishing the new dev runtime.
 - If you switch between the packaged runtime and the contributor runtime, either rerun `One-Click Setup` immediately or use `Remove Patina From Hosts` before switching.
