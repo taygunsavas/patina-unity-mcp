@@ -23,13 +23,17 @@ Patina exposes a compact MCP interface:
 
 - `patina_capabilities` searches and describes available Unity commands.
 - `patina_call` executes a selected Unity command.
-- `patina_health` reports runtime, bridge, and editor state.
+- `patina_health` reports runtime, bridge, and editor state, including `blockedByModalDialogLikely` hints when Unity may be blocked by a modal dialog.
 
 The package includes prebuilt Patina server binaries for Windows, Linux, and Apple Silicon macOS under `Plugins/<platform>/`.
 
 ## Agent Feedback
 
 When an agent using Patina finds a bug, missing command, or workflow gap, it should ask the user before filing feedback. With approval, the agent should follow repository rules, search existing issues, avoid duplicates, and include versions, MCP host, reproduction steps, expected and actual behavior, and relevant errors.
+
+## Troubleshooting
+
+If a command returns `EDITOR_BLOCKED`, check Unity for a save-changes prompt or other modal popup. Resolve the Unity prompt, then retry the command or run `patina_health` with `{"include_unity_state": true}`.
 
 ## Links
 

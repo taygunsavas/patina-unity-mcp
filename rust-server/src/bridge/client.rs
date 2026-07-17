@@ -73,7 +73,10 @@ impl BridgeClient {
                 Ok(()) => return Ok(()),
                 Err(error) => {
                     if tokio::time::Instant::now() + backoff >= deadline {
-                        return Err(format!("Not connected to Unity bridge: {}", error));
+                        return Err(format!(
+                            "Not connected to Unity bridge: {}. If Unity is open, it may be blocked by a modal dialog or save-changes prompt; resolve any Unity popup and retry.",
+                            error
+                        ));
                     }
 
                     tokio::time::sleep(backoff).await;
@@ -230,7 +233,10 @@ impl BridgeClient {
             }
             Err(_) => {
                 self.pending.remove(&id);
-                Err("Request timed out after 30 seconds".to_string())
+                Err(format!(
+                    "Request '{}' timed out after 30 seconds. Unity may be waiting for input in a modal dialog or save-changes prompt; resolve any Unity popup and retry.",
+                    command
+                ))
             }
         }
     }

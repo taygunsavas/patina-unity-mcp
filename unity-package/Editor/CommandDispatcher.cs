@@ -14,6 +14,11 @@ namespace Patina.Editor
             _handlers[command] = handler;
         }
 
+        public static bool HasHandler(string command)
+        {
+            return !string.IsNullOrEmpty(command) && _handlers.ContainsKey(command);
+        }
+
         public static async Task<BridgeResponse> Dispatch(BridgeRequest request)
         {
             if (request == null)

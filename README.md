@@ -75,7 +75,7 @@ Patina keeps the advertised MCP surface compact so hosts do not need to load eve
 |------|-------------|
 | `patina_capabilities` | Search or browse the Unity command catalog; request schemas only for specific commands |
 | `patina_call` | Execute a catalog command with JSON parameters |
-| `patina_health` | Inspect Patina version, command count, bridge port, and optional Unity editor state |
+| `patina_health` | Inspect Patina version, command count, bridge port, and optional Unity editor state or `blockedByModalDialogLikely` hints |
 
 The 86 commands below are available through `patina_capabilities` and `patina_call`.
 
@@ -207,7 +207,7 @@ The 86 commands below are available through `patina_capabilities` and `patina_ca
 
 | Tool | What it does |
 |------|-------------|
-| `get_editor_state` | Current editor flags: `isCompiling`, `isPlaying`, `isPaused`, `hasCompileErrors`, version, and project path |
+| `get_editor_state` | Current editor flags and main-thread responsiveness; returns a limited blocked state with `blockedByModalDialogLikely` if Unity is not processing editor updates |
 | `get_project_settings` | Read-only snapshot of key project settings (version, build target, color space, physics gravity, etc.) |
 | `set_play_mode` | Enter, exit, pause, unpause, or step play mode |
 | `execute_menu_item` | Execute any Editor menu item by full path (e.g. `Assets/Refresh`) |
@@ -265,6 +265,10 @@ The 86 commands below are available through `patina_capabilities` and `patina_ca
 | Codex CLI | Automatic |
 
 The setup window also detects stale entries, missing hosts, and provides a clean **Remove Patina From Hosts** action.
+
+## Troubleshooting
+
+If a Patina call reports `EDITOR_BLOCKED`, or mentions that Unity may be waiting on a modal dialog, check the Unity Editor for a save-changes prompt or other blocking popup. Patina cannot safely run queued editor commands while Unity is waiting for user input. Resolve the Unity prompt, then retry the MCP command or run `patina_health` with `{"include_unity_state": true}`.
 
 ## Roadmap
 
