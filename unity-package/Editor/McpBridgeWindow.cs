@@ -161,7 +161,7 @@ namespace Patina.Editor
             GroupBox box = new GroupBox { text = "Diagnostics" };
             box.style.marginBottom = 8;
             box.Add(CreateInfoRow("Runtime Source", out _runtimeSourceLabel));
-            box.Add(CreateInfoRow("Resolved Binary", out _binaryPathLabel));
+            box.Add(CreateInfoRow("Host Runtime", out _binaryPathLabel));
             box.Add(CreateInfoRow("Package Id", out _configPathLabel));
 
             _registrationHelpBox = new HelpBox(string.Empty, HelpBoxMessageType.Info);
@@ -261,7 +261,7 @@ namespace Patina.Editor
                 : runtimeStatusMessage;
             _configPathLabel.text = ProcessManager.GetPackageId();
 
-            _registrationHelpBox.text = "Per-host setup state is shown in Host Results. " + runtimeStatusMessage + " One-Click Setup updates supported hosts and replaces stale Patina entries when needed.";
+            _registrationHelpBox.text = "Per-host setup state is shown in Host Results. " + runtimeStatusMessage + " One-Click Setup writes supported hosts to the stable Patina runtime and replaces stale entries when needed.";
             _registrationHelpBox.messageType = HelpBoxMessageType.Info;
 
             bool contributorModeAvailable = ProcessManager.IsContributorModeAvailable();
@@ -306,7 +306,7 @@ namespace Patina.Editor
             if (_lastSetupResults == null)
             {
                 _setupHelpBox.text = hasBinary
-                    ? "Automatic setup updates supported local MCP hosts, removes stale Patina entries, and keeps linked integrations aligned through shared host config files."
+                    ? "Automatic setup updates supported local MCP hosts, removes stale Patina entries, and keeps linked integrations aligned through the stable Patina runtime."
                     : runtimeStatusMessage;
                 _setupHelpBox.messageType = hasBinary ? HelpBoxMessageType.Info : HelpBoxMessageType.Error;
             }

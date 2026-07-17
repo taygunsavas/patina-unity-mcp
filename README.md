@@ -59,6 +59,8 @@ Open **Window > Patina Unity MCP** and click **One-Click Setup**.
 
 The setup flow verifies the binary, starts the Unity bridge, auto-configures every detected host, replaces stale entries, and shows restart guidance where needed.
 
+Patina writes host configs to a stable user-level runtime path instead of a per-project Unity package cache path. When the package is updated, the Unity editor package refreshes that managed runtime automatically, so supported MCP hosts do not need to be reconfigured just because the package cache path changed.
+
 ### 3. Start building
 Open your MCP host and try:
 - *"Log hello to Unity console"*
@@ -289,7 +291,7 @@ pwsh -File scripts/publish-dev-runtime.ps1
 ```
 4. In Unity, open **Window > Patina Unity MCP**, enable **Use Local Runtime (Contributor)**, and click **One-Click Setup**.
 
-This writes host configs against the local dev runtime instead of the packaged binary. Re-run **One-Click Setup** after every new `cargo build --release` + `publish-dev-runtime` pass, and use **Remove Patina From Hosts** before switching back to the packaged flow.
+This writes host configs against the local dev runtime instead of the managed packaged runtime. Re-run **One-Click Setup** after every new `cargo build --release` + `publish-dev-runtime` pass, and use **Remove Patina From Hosts** before switching back to the packaged flow.
 
 ### Stage a local UPM test package
 Use this when you want to test the package as it will be published, not the raw source checkout:
