@@ -5,6 +5,7 @@ using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using Newtonsoft.Json;
+using Newtonsoft.Json.Linq;
 using UnityEditor;
 using UnityEngine;
 
@@ -174,7 +175,20 @@ namespace Patina.Editor
                         try
                         {
                             BridgeRequest request = JsonConvert.DeserializeObject<BridgeRequest>(json);
-                            response = await CommandDispatcher.Dispatch(request).ConfigureAwait(false);
+                            if (request == null || string.IsNullOrEmpty(request.Command) || !CommandDispatcher.HasHandler(request.Command))
+                            {
+                                response = await CommandDispatcher.Dispatch(request).ConfigureAwait(false);
+                            }
+                            else if (IsEditorLikelyBlocked())
+                            {
+                                response = request.Command == "get_editor_state"
+                                    ? BridgeResponse.Ok(request.Id, CreateBlockedEditorState())
+                                    : CreateEditorBlockedResponse(request.Id);
+                            }
+                            else
+                            {
+                                response = await CommandDispatcher.Dispatch(request).ConfigureAwait(false);
+                            }
                         }
                         catch (Exception ex)
                         {
@@ -199,6 +213,36 @@ namespace Patina.Editor
             {
                 Interlocked.Decrement(ref _connectedClients);
             }
+        }
+
+        private static bool IsEditorLikelyBlocked()
+        {
+            return MainThreadQueue.TimeSinceLastUpdate.TotalSeconds >= MainThreadQueue.BlockedThresholdSeconds;
+        }
+
+        private static BridgeResponse CreateEditorBlockedResponse(string id)
+        {
+            TimeSpan age = MainThreadQueue.TimeSinceLastUpdate;
+            int pendingCount = MainThreadQueue.PendingCount;
+            string message =
+                $"Unity has not processed editor updates for {age.TotalSeconds:F1}s, so Patina cannot safely service queued editor commands. " +
+                "Unity may be waiting for input in a modal dialog, such as a save-changes prompt. " +
+                $"Resolve the Unity popup or blocking operation, then retry. Pending Patina main-thread actions: {pendingCount}.";
+            return BridgeResponse.Fail(id, message, "EDITOR_BLOCKED");
+        }
+
+        private static JObject CreateBlockedEditorState()
+        {
+            TimeSpan age = MainThreadQueue.TimeSinceLastUpdate;
+            return new JObject
+            {
+                ["isServiceable"] = false,
+                ["blockedByModalDialogLikely"] = true,
+                ["mainThreadUpdateAgeSeconds"] = age.TotalSeconds,
+                ["mainThreadQueuePendingCount"] = MainThreadQueue.PendingCount,
+                ["status"] = "blocked",
+                ["message"] = "Unity has stopped processing editor updates. It may be waiting for input in a modal dialog, such as a save-changes prompt. Resolve the Unity popup, then retry Patina commands."
+            };
         }
 
         private static async Task<string> ReadFrameAsync(NetworkStream stream)
