@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Net;
 using System.Net.Sockets;
 using System.Text;
@@ -21,7 +22,8 @@ namespace Patina.Editor
         private static TcpListener _listener;
         private static CancellationTokenSource _cts;
         private static Thread _listenerThread;
-        private static int _connectedClients;
+        private static readonly object s_clientsLock = new object();
+        private static readonly HashSet<TcpClient> s_clients = new HashSet<TcpClient>();
 
         private static int _isRunning;
         public static bool IsRunning => Interlocked.CompareExchange(ref _isRunning, 0, 0) == 1;
@@ -30,7 +32,16 @@ namespace Patina.Editor
         public static string LastError => _lastError;
 
         public static int Port => EditorPrefs.GetInt(PortPrefsKey, DefaultPort);
-        public static int ConnectedClients => _connectedClients;
+        public static int ConnectedClients
+        {
+            get
+            {
+                lock (s_clientsLock)
+                {
+                    return s_clients.Count;
+                }
+            }
+        }
 
         private static readonly JsonSerializerSettings s_jsonSettings = new JsonSerializerSettings
         {
@@ -130,7 +141,7 @@ namespace Patina.Editor
 
         public static void Stop()
         {
-            if (!IsRunning)
+            if (!IsRunning && ConnectedClients == 0)
                 return;
 
             Interlocked.Exchange(ref _isRunning, 0);
@@ -141,6 +152,7 @@ namespace Patina.Editor
                     _cts.Cancel();
                 if (_listener != null)
                     _listener.Stop();
+                CloseActiveClients();
             }
             catch
             {
@@ -152,7 +164,7 @@ namespace Patina.Editor
                     _cts.Dispose();
                 _cts = null;
                 _listenerThread = null;
-                _connectedClients = 0;
+                CloseActiveClients();
                 Debug.Log("[Patina] Bridge server stopped.");
             }
         }
@@ -174,7 +186,29 @@ namespace Patina.Editor
                     _cts.Dispose();
                 _cts = null;
                 _listenerThread = null;
-                _connectedClients = 0;
+                CloseActiveClients();
+            }
+        }
+
+        private static void CloseActiveClients()
+        {
+            TcpClient[] clients;
+            lock (s_clientsLock)
+            {
+                clients = new TcpClient[s_clients.Count];
+                s_clients.CopyTo(clients);
+                s_clients.Clear();
+            }
+
+            foreach (TcpClient client in clients)
+            {
+                try
+                {
+                    client.Close();
+                }
+                catch
+                {
+                }
             }
         }
 
@@ -206,6 +240,9 @@ namespace Patina.Editor
                 return PortReleaseResult.Failed($"The port is owned by protected Windows PID {pid.Value}; Patina will not terminate it automatically.");
 
             string processName = GetProcessName(pid.Value);
+            if (string.IsNullOrWhiteSpace(processName))
+                return PortReleaseResult.Poisoned(BuildPoisonedPortMessage(port, pid.Value));
+
             if (IsUnityProcess(processName))
                 return PortReleaseResult.Failed($"The port is owned by Unity PID {pid.Value}. Patina will not force-close another Unity Editor automatically; close that editor or change its Patina port, then retry.");
 
@@ -257,6 +294,11 @@ namespace Patina.Editor
         private static string DescribeProcess(string processName)
         {
             return string.IsNullOrWhiteSpace(processName) ? "unresolved process name" : processName;
+        }
+
+        private static string BuildPoisonedPortMessage(int port, int pid)
+        {
+            return $"Windows reports tcp://127.0.0.1:{port}/ as LISTENING under PID {pid}, but that PID is not visible as a running process. This is a poisoned or orphaned TCP listener outside Patina's safe user-mode cleanup path. Close MCP hosts using Patina and restart Windows to release the port; restarting Unity alone may not be enough.";
         }
 
         private static int? FindTcpListenerPid(int port)
@@ -348,30 +390,40 @@ namespace Patina.Editor
         private static string BuildPortUnavailableMessage(int port, PortReleaseResult releaseResult, Exception retryError)
         {
             string retryMessage = retryError == null ? string.Empty : " Retry failed: " + retryError.Message;
+            if (releaseResult.IsPoisonedPort)
+                return $"Patina could not bind tcp://127.0.0.1:{port}/. {releaseResult.Message}{retryMessage}";
+
             return $"Patina could not bind tcp://127.0.0.1:{port}/ and could not automatically release the existing listener. {releaseResult.Message}{retryMessage} Close the process using the port or restart Unity, then retry.";
         }
 
         private sealed class PortReleaseResult
         {
-            private PortReleaseResult(bool released, int? pid, string message)
+            private PortReleaseResult(bool released, int? pid, string message, bool isPoisonedPort)
             {
                 Released = released;
                 Pid = pid;
                 Message = message;
+                IsPoisonedPort = isPoisonedPort;
             }
 
             public bool Released { get; }
             public int? Pid { get; }
             public string Message { get; }
+            public bool IsPoisonedPort { get; }
 
             public static PortReleaseResult Success(int pid)
             {
-                return new PortReleaseResult(true, pid, "Released the existing bridge listener.");
+                return new PortReleaseResult(true, pid, "Released the existing bridge listener.", false);
             }
 
             public static PortReleaseResult Failed(string message)
             {
-                return new PortReleaseResult(false, null, message);
+                return new PortReleaseResult(false, null, message, false);
+            }
+
+            public static PortReleaseResult Poisoned(string message)
+            {
+                return new PortReleaseResult(false, null, message, true);
             }
         }
 
@@ -410,15 +462,34 @@ namespace Patina.Editor
                         break;
                     }
 
-                    client.NoDelay = true;
-                    Task.Run(() => HandleClientAsync(client, token));
+                    RegisterClient(client);
+                    try
+                    {
+                        client.NoDelay = true;
+                        Task.Run(() => HandleClientAsync(client, token));
+                    }
+                    catch
+                    {
+                        UnregisterClient(client);
+                        try
+                        {
+                            client.Close();
+                        }
+                        catch
+                        {
+                        }
+
+                        throw;
+                    }
                 }
             }
             catch (Exception ex)
             {
-                _lastError = ex.Message;
                 if (!token.IsCancellationRequested)
+                {
+                    _lastError = ex.Message;
                     Debug.LogError($"[Patina] TCP listener error: {ex.Message}");
+                }
             }
         }
 
@@ -426,7 +497,6 @@ namespace Patina.Editor
         {
             // NOTE: CancellationToken is not propagated to ReadAsync/WriteAsync calls.
             // The socket is closed on Stop() which unblocks pending reads.
-            Interlocked.Increment(ref _connectedClients);
             try
             {
                 using (client)
@@ -473,13 +543,43 @@ namespace Patina.Editor
             }
             catch (Exception ex)
             {
-                _lastError = ex.Message;
-                Debug.LogError($"[Patina] TCP client error: {ex.Message}");
+                if (!IsExpectedClientClose(ex, token))
+                {
+                    _lastError = ex.Message;
+                    Debug.LogError($"[Patina] TCP client error: {ex.Message}");
+                }
             }
             finally
             {
-                Interlocked.Decrement(ref _connectedClients);
+                UnregisterClient(client);
             }
+        }
+
+        private static void RegisterClient(TcpClient client)
+        {
+            lock (s_clientsLock)
+            {
+                s_clients.Add(client);
+            }
+        }
+
+        private static void UnregisterClient(TcpClient client)
+        {
+            lock (s_clientsLock)
+            {
+                s_clients.Remove(client);
+            }
+        }
+
+        private static bool IsExpectedClientClose(Exception ex, CancellationToken token)
+        {
+            if (!token.IsCancellationRequested && IsRunning)
+                return false;
+
+            return ex is ObjectDisposedException
+                   || ex is SocketException
+                   || ex is InvalidOperationException
+                   || ex is System.IO.IOException;
         }
 
         private static bool IsEditorLikelyBlocked()
