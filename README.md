@@ -75,7 +75,7 @@ Patina keeps the advertised MCP surface compact so hosts do not need to load eve
 |------|-------------|
 | `patina_capabilities` | Search or browse the Unity command catalog; request schemas only for specific commands |
 | `patina_call` | Execute a catalog command with JSON parameters |
-| `patina_health` | Inspect Patina version, command count, bridge port, and optional Unity editor state or `blockedByModalDialogLikely` hints |
+| `patina_health` | Inspect Patina version, command count, bridge port, optional Unity editor state, and bridge diagnostics |
 
 The 86 commands below are available through `patina_capabilities` and `patina_call`.
 

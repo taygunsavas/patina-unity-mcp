@@ -12,18 +12,80 @@ using UnityEngine;
 
 namespace Patina.Editor
 {
+    public enum BridgeRuntimeState
+    {
+        Stopped,
+        Starting,
+        Running,
+        Stopping,
+        DetachedAlive,
+        StaleInProcess,
+        PoisonedPort,
+        PortOwnedByOtherProcess,
+        Error
+    }
+
+    public sealed class BridgeStatusSnapshot
+    {
+        public BridgeStatusSnapshot(
+            BridgeRuntimeState state,
+            int port,
+            bool managedRunning,
+            int trackedClientCount,
+            int? listenerPid,
+            string listenerProcessName,
+            bool listenerOwnedByCurrentUnity,
+            bool pingSucceeded,
+            string pingMessage,
+            bool restartRequired,
+            string message)
+        {
+            State = state;
+            Port = port;
+            ManagedRunning = managedRunning;
+            TrackedClientCount = trackedClientCount;
+            ListenerPid = listenerPid;
+            ListenerProcessName = listenerProcessName;
+            ListenerOwnedByCurrentUnity = listenerOwnedByCurrentUnity;
+            PingSucceeded = pingSucceeded;
+            PingMessage = pingMessage;
+            RestartRequired = restartRequired;
+            Message = message;
+        }
+
+        public BridgeRuntimeState State { get; }
+        public int Port { get; }
+        public bool ManagedRunning { get; }
+        public int TrackedClientCount { get; }
+        public int? ListenerPid { get; }
+        public string ListenerProcessName { get; }
+        public bool ListenerOwnedByCurrentUnity { get; }
+        public bool PingSucceeded { get; }
+        public string PingMessage { get; }
+        public bool RestartRequired { get; }
+        public string Message { get; }
+
+        public bool IsBridgeUsable => State == BridgeRuntimeState.Running || State == BridgeRuntimeState.DetachedAlive;
+    }
+
     [InitializeOnLoad]
     public static class McpBridgeServer
     {
+        private const string BridgePingCommand = "__patina_bridge_ping";
         private const string PortPrefsKey = "Patina.Port";
         private const int DefaultPort = 9800;
         private const int MaxFrameBytes = 4 * 1024 * 1024;
+        private const int ProbeTimeoutMilliseconds = 250;
 
         private static TcpListener _listener;
         private static CancellationTokenSource _cts;
         private static Thread _listenerThread;
         private static readonly object s_clientsLock = new object();
         private static readonly HashSet<TcpClient> s_clients = new HashSet<TcpClient>();
+        private static readonly string s_sessionId = Guid.NewGuid().ToString("N");
+        private static readonly object s_snapshotLock = new object();
+        private static BridgeStatusSnapshot s_cachedSnapshot;
+        private static DateTime s_cachedSnapshotAtUtc = DateTime.MinValue;
 
         private static int _isRunning;
         public static bool IsRunning => Interlocked.CompareExchange(ref _isRunning, 0, 0) == 1;
@@ -42,6 +104,8 @@ namespace Patina.Editor
                 }
             }
         }
+
+        public static BridgeRuntimeState RuntimeState => GetStatusSnapshot().State;
 
         private static readonly JsonSerializerSettings s_jsonSettings = new JsonSerializerSettings
         {
@@ -63,6 +127,7 @@ namespace Patina.Editor
         public static void SetPort(int port)
         {
             EditorPrefs.SetInt(PortPrefsKey, port);
+            InvalidateStatusSnapshot();
         }
 
         public static void Start()
@@ -71,6 +136,7 @@ namespace Patina.Editor
                 return;
 
             _lastError = null;
+            InvalidateStatusSnapshot();
 
             int port = Port;
             if (TryStartOnPort(port, out Exception error))
@@ -85,13 +151,134 @@ namespace Patina.Editor
                 if (releaseResult.Released && TryStartOnPort(port, out retryError))
                     return;
 
-                _lastError = BuildPortUnavailableMessage(port, releaseResult, retryError);
-                Debug.LogError("[Patina] " + _lastError);
+                if (releaseResult.DetachedAlive)
+                {
+                    _lastError = null;
+                    InvalidateStatusSnapshot();
+                    Debug.LogWarning("[Patina] " + releaseResult.Message);
+                    return;
+                }
+
+                SetLastError(BuildPortUnavailableMessage(port, releaseResult, retryError));
                 return;
             }
 
-            _lastError = error.Message;
-            Debug.LogError($"[Patina] Failed to start TCP bridge on port {port}: {error.Message}");
+            SetLastError($"Failed to start TCP bridge on port {port}: {error.Message}");
+        }
+
+        public static void Restart()
+        {
+            Stop();
+            Start();
+        }
+
+        private static void InvalidateStatusSnapshot()
+        {
+            lock (s_snapshotLock)
+            {
+                s_cachedSnapshot = null;
+                s_cachedSnapshotAtUtc = DateTime.MinValue;
+            }
+        }
+
+        public static BridgeStatusSnapshot GetStatusSnapshot(bool forceRefresh = false)
+        {
+            lock (s_snapshotLock)
+            {
+                if (!forceRefresh
+                    && s_cachedSnapshot != null
+                    && (DateTime.UtcNow - s_cachedSnapshotAtUtc).TotalMilliseconds < 500)
+                {
+                    return s_cachedSnapshot;
+                }
+
+                s_cachedSnapshot = BuildStatusSnapshot();
+                s_cachedSnapshotAtUtc = DateTime.UtcNow;
+                return s_cachedSnapshot;
+            }
+        }
+
+        private static BridgeStatusSnapshot BuildStatusSnapshot()
+        {
+            int port = Port;
+            int trackedClients = ConnectedClients;
+            bool managedRunning = IsRunning;
+            int currentPid = System.Diagnostics.Process.GetCurrentProcess().Id;
+            int? listenerPid = FindTcpListenerPid(port);
+            string ownerProcessName = listenerPid.HasValue ? GetProcessName(listenerPid.Value) : null;
+            BridgeProbeResult probe = BridgeProbeResult.NotAttempted();
+            BridgeRuntimeState state;
+            string message;
+            bool restartRequired = false;
+
+            if (managedRunning)
+            {
+                state = BridgeRuntimeState.Running;
+                message = trackedClients > 0
+                    ? "Unity bridge is listening on local TCP and has an attached Patina client."
+                    : "Unity bridge is listening on local TCP and waiting for a Patina client connection.";
+            }
+            else if (!listenerPid.HasValue)
+            {
+                state = BridgeRuntimeState.Stopped;
+                message = string.IsNullOrEmpty(_lastError)
+                    ? "Bridge server is stopped. Start it manually only when debugging transport issues."
+                    : _lastError;
+            }
+            else if (listenerPid.Value == currentPid)
+            {
+                probe = ProbeBridge(port);
+                if (probe.Success)
+                {
+                    state = BridgeRuntimeState.DetachedAlive;
+                    message = "A Patina bridge listener is alive inside this Unity Editor, but the current managed bridge instance does not own its listener handle. Restart Unity after the active host session if controls cannot stop it.";
+                }
+                else
+                {
+                    state = BridgeRuntimeState.StaleInProcess;
+                    restartRequired = true;
+                    message = "This Unity Editor owns the Patina bridge port, but the managed bridge state no longer owns the listener and protocol ping failed. Restart Unity to clear the stale in-process listener.";
+                }
+            }
+            else if (string.IsNullOrWhiteSpace(ownerProcessName))
+            {
+                state = BridgeRuntimeState.PoisonedPort;
+                restartRequired = true;
+                message = listenerPid.HasValue
+                    ? BuildPoisonedPortMessage(port, listenerPid.Value)
+                    : "Windows reports the Patina bridge port as occupied, but Patina could not resolve the owning PID.";
+            }
+            else
+            {
+                state = BridgeRuntimeState.PortOwnedByOtherProcess;
+                restartRequired = IsUnityProcess(ownerProcessName);
+                message = IsUnityProcess(ownerProcessName)
+                    ? $"The port is owned by another Unity Editor PID {listenerPid.Value}. Close that editor or change its Patina port, then retry."
+                    : $"The port is owned by PID {listenerPid.Value} ({DescribeProcess(ownerProcessName)}). Patina will not terminate unrelated processes automatically.";
+            }
+
+            if (state == BridgeRuntimeState.Stopped && !string.IsNullOrEmpty(_lastError))
+                state = BridgeRuntimeState.Error;
+
+            return new BridgeStatusSnapshot(
+                state,
+                port,
+                managedRunning,
+                trackedClients,
+                listenerPid,
+                ownerProcessName,
+                listenerPid.HasValue && listenerPid.Value == currentPid,
+                probe.Success,
+                probe.Message,
+                restartRequired,
+                message);
+        }
+
+        private static void SetLastError(string message)
+        {
+            _lastError = message;
+            InvalidateStatusSnapshot();
+            Debug.LogError("[Patina] " + message);
         }
 
         private static bool TryStartOnPort(int port, out Exception error)
@@ -111,6 +298,7 @@ namespace Patina.Editor
                 _cts = cts;
                 _listener = listener;
                 Interlocked.Exchange(ref _isRunning, 1);
+                InvalidateStatusSnapshot();
 
                 _listenerThread = new Thread(() => ListenLoop(cts.Token));
                 _listenerThread.IsBackground = true;
@@ -139,12 +327,116 @@ namespace Patina.Editor
             }
         }
 
+        private static BridgeProbeResult ProbeBridge(int port)
+        {
+            try
+            {
+                using (TcpClient client = new TcpClient())
+                {
+                    IAsyncResult connect = client.BeginConnect(IPAddress.Loopback, port, null, null);
+                    if (!connect.AsyncWaitHandle.WaitOne(ProbeTimeoutMilliseconds))
+                        return BridgeProbeResult.Failed("Bridge ping connect timed out.");
+
+                    client.EndConnect(connect);
+                    client.NoDelay = true;
+                    client.ReceiveTimeout = ProbeTimeoutMilliseconds;
+                    client.SendTimeout = ProbeTimeoutMilliseconds;
+
+                    using (NetworkStream stream = client.GetStream())
+                    {
+                        BridgeRequest request = new BridgeRequest
+                        {
+                            Id = Guid.NewGuid().ToString("N"),
+                            Command = BridgePingCommand,
+                            Parameters = new JObject()
+                        };
+
+                        string requestJson = JsonConvert.SerializeObject(request, Formatting.None, s_jsonSettings);
+                        WriteFrame(stream, requestJson);
+                        string responseJson = ReadFrame(stream);
+                        BridgeResponse response = JsonConvert.DeserializeObject<BridgeResponse>(responseJson);
+                        if (response != null && response.Success)
+                            return BridgeProbeResult.Ok("Bridge ping succeeded.");
+
+                        string error = response?.Error?.Message ?? "Bridge ping returned no success response.";
+                        return BridgeProbeResult.Failed(error);
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                return BridgeProbeResult.Failed(ex.Message);
+            }
+        }
+
+        private static void WriteFrame(NetworkStream stream, string payload)
+        {
+            byte[] body = Encoding.UTF8.GetBytes(payload);
+            if (body.Length <= 0 || body.Length > MaxFrameBytes)
+                throw new InvalidOperationException($"Invalid frame length: {body.Length}");
+
+            int len = body.Length;
+            byte[] header = new byte[4];
+            header[0] = (byte)(len & 0xFF);
+            header[1] = (byte)((len >> 8) & 0xFF);
+            header[2] = (byte)((len >> 16) & 0xFF);
+            header[3] = (byte)((len >> 24) & 0xFF);
+            stream.Write(header, 0, header.Length);
+            stream.Write(body, 0, body.Length);
+            stream.Flush();
+        }
+
+        private static string ReadFrame(NetworkStream stream)
+        {
+            byte[] header = ReadExactly(stream, 4);
+            int length = header[0] | (header[1] << 8) | (header[2] << 16) | (header[3] << 24);
+            if (length <= 0 || length > MaxFrameBytes)
+                throw new InvalidOperationException($"Invalid frame length: {length}");
+
+            byte[] payload = ReadExactly(stream, length);
+            return Encoding.UTF8.GetString(payload, 0, payload.Length);
+        }
+
+        private static byte[] ReadExactly(NetworkStream stream, int length)
+        {
+            byte[] buffer = new byte[length];
+            int offset = 0;
+            while (offset < length)
+            {
+                int read = stream.Read(buffer, offset, length - offset);
+                if (read == 0)
+                    throw new InvalidOperationException("Bridge ping connection closed.");
+
+                offset += read;
+            }
+
+            return buffer;
+        }
+
         public static void Stop()
         {
-            if (!IsRunning && ConnectedClients == 0)
+            bool managedRunning = IsRunning;
+            if (!managedRunning && ConnectedClients == 0)
                 return;
 
+            if (!managedRunning)
+            {
+                BridgeStatusSnapshot snapshot = GetStatusSnapshot(true);
+                if (snapshot.State == BridgeRuntimeState.DetachedAlive)
+                {
+                    SetLastError("Patina cannot stop the current bridge listener because it is detached from the managed listener handle. Restart Unity after the active host session to fully reset it.");
+                    return;
+                }
+
+                if (snapshot.State == BridgeRuntimeState.StaleInProcess)
+                {
+                    SetLastError("Patina cannot stop the stale in-process bridge listener because the managed listener handle is unavailable. Restart Unity to clear it.");
+                    return;
+                }
+            }
+
             Interlocked.Exchange(ref _isRunning, 0);
+            InvalidateStatusSnapshot();
 
             try
             {
@@ -165,6 +457,7 @@ namespace Patina.Editor
                 _cts = null;
                 _listenerThread = null;
                 CloseActiveClients();
+                InvalidateStatusSnapshot();
                 Debug.Log("[Patina] Bridge server stopped.");
             }
         }
@@ -187,6 +480,7 @@ namespace Patina.Editor
                 _cts = null;
                 _listenerThread = null;
                 CloseActiveClients();
+                InvalidateStatusSnapshot();
             }
         }
 
@@ -234,7 +528,13 @@ namespace Patina.Editor
 
             int currentPid = System.Diagnostics.Process.GetCurrentProcess().Id;
             if (pid.Value == currentPid)
-                return PortReleaseResult.Failed("The port is owned by the current Unity Editor process. Restart Unity to clear the stale in-process listener.");
+            {
+                BridgeProbeResult probe = ProbeBridge(port);
+                if (probe.Success)
+                    return PortReleaseResult.Detached("A Patina bridge listener is already alive inside this Unity Editor. Start skipped rebinding and will report it as detached alive.");
+
+                return PortReleaseResult.Failed("The port is owned by the current Unity Editor process, but Patina could not ping a live bridge on it. Restart Unity to clear the stale in-process listener.");
+            }
 
             if (pid.Value <= 4)
                 return PortReleaseResult.Failed($"The port is owned by protected Windows PID {pid.Value}; Patina will not terminate it automatically.");
@@ -398,32 +698,66 @@ namespace Patina.Editor
 
         private sealed class PortReleaseResult
         {
-            private PortReleaseResult(bool released, int? pid, string message, bool isPoisonedPort)
+            private PortReleaseResult(bool released, int? pid, string message, bool isPoisonedPort, bool detachedAlive)
             {
                 Released = released;
                 Pid = pid;
                 Message = message;
                 IsPoisonedPort = isPoisonedPort;
+                DetachedAlive = detachedAlive;
             }
 
             public bool Released { get; }
             public int? Pid { get; }
             public string Message { get; }
             public bool IsPoisonedPort { get; }
+            public bool DetachedAlive { get; }
 
             public static PortReleaseResult Success(int pid)
             {
-                return new PortReleaseResult(true, pid, "Released the existing bridge listener.", false);
+                return new PortReleaseResult(true, pid, "Released the existing bridge listener.", false, false);
             }
 
             public static PortReleaseResult Failed(string message)
             {
-                return new PortReleaseResult(false, null, message, false);
+                return new PortReleaseResult(false, null, message, false, false);
             }
 
             public static PortReleaseResult Poisoned(string message)
             {
-                return new PortReleaseResult(false, null, message, true);
+                return new PortReleaseResult(false, null, message, true, false);
+            }
+
+            public static PortReleaseResult Detached(string message)
+            {
+                return new PortReleaseResult(false, null, message, false, true);
+            }
+        }
+
+        private readonly struct BridgeProbeResult
+        {
+            private BridgeProbeResult(bool success, string message)
+            {
+                Success = success;
+                Message = message;
+            }
+
+            public bool Success { get; }
+            public string Message { get; }
+
+            public static BridgeProbeResult Ok(string message)
+            {
+                return new BridgeProbeResult(true, message);
+            }
+
+            public static BridgeProbeResult Failed(string message)
+            {
+                return new BridgeProbeResult(false, message);
+            }
+
+            public static BridgeProbeResult NotAttempted()
+            {
+                return new BridgeProbeResult(false, string.Empty);
             }
         }
 
@@ -487,8 +821,15 @@ namespace Patina.Editor
             {
                 if (!token.IsCancellationRequested)
                 {
-                    _lastError = ex.Message;
-                    Debug.LogError($"[Patina] TCP listener error: {ex.Message}");
+                    SetLastError(ex.Message);
+                }
+            }
+            finally
+            {
+                if (!token.IsCancellationRequested)
+                {
+                    Interlocked.Exchange(ref _isRunning, 0);
+                    InvalidateStatusSnapshot();
                 }
             }
         }
@@ -512,7 +853,11 @@ namespace Patina.Editor
                         try
                         {
                             BridgeRequest request = JsonConvert.DeserializeObject<BridgeRequest>(json);
-                            if (request == null || string.IsNullOrEmpty(request.Command) || !CommandDispatcher.HasHandler(request.Command))
+                            if (request != null && request.Command == BridgePingCommand)
+                            {
+                                response = BridgeResponse.Ok(request.Id, CreateBridgePingResult());
+                            }
+                            else if (request == null || string.IsNullOrEmpty(request.Command) || !CommandDispatcher.HasHandler(request.Command))
                             {
                                 response = await CommandDispatcher.Dispatch(request).ConfigureAwait(false);
                             }
@@ -553,6 +898,25 @@ namespace Patina.Editor
             {
                 UnregisterClient(client);
             }
+        }
+
+        private static JObject CreateBridgePingResult()
+        {
+            return new JObject
+            {
+                ["bridge"] = "patina-unity",
+                ["sessionId"] = s_sessionId,
+                ["unityProcessId"] = System.Diagnostics.Process.GetCurrentProcess().Id,
+                ["packageVersion"] = GetPackageVersion(),
+                ["managedRunning"] = IsRunning,
+                ["trackedClientCount"] = ConnectedClients,
+                ["port"] = Port
+            };
+        }
+
+        private static string GetPackageVersion()
+        {
+            return UnityEditor.PackageManager.PackageInfo.FindForAssembly(typeof(McpBridgeServer).Assembly)?.version ?? "unknown";
         }
 
         private static void RegisterClient(TcpClient client)

@@ -50,6 +50,9 @@ pub struct PatinaHealthArgs {
     /// When true, also calls Unity get_editor_state through the bridge.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub include_unity_state: Option<bool>,
+    /// When true, calls Unity's bridge-level ping without touching Unity main-thread APIs.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub include_bridge_diagnostics: Option<bool>,
 }
 
 impl UnityMcpServer {
@@ -156,7 +159,7 @@ impl UnityMcpServer {
 
     #[tool(
         name = "patina_health",
-        description = "Return Patina server version, compact MCP surface status, bridge port, command count, and optionally Unity editor state."
+        description = "Return Patina server version, compact MCP surface status, bridge port, command count, and optionally Unity editor state or bridge diagnostics."
     )]
     async fn patina_health(
         &self,
@@ -185,6 +188,23 @@ impl UnityMcpServer {
                 }
                 Err(error) => {
                     result["unityStateError"] = json!({ "message": error });
+                }
+            }
+        }
+
+        if args.include_bridge_diagnostics.unwrap_or(false) {
+            match self.bridge.request("__patina_bridge_ping", json!({})).await {
+                Ok(response) if response.success => {
+                    result["bridgeDiagnostics"] = response.result.unwrap_or(Value::Null);
+                }
+                Ok(response) => {
+                    result["bridgeDiagnosticsError"] = response
+                        .error
+                        .map(|error| json!({ "code": error.code, "message": error.message }))
+                        .unwrap_or_else(|| json!({ "message": "Unknown bridge error" }));
+                }
+                Err(error) => {
+                    result["bridgeDiagnosticsError"] = json!({ "message": error });
                 }
             }
         }
