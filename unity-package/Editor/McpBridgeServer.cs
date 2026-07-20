@@ -59,35 +59,72 @@ namespace Patina.Editor
             if (IsRunning)
                 return;
 
-            int port = Port;
-            _cts = new CancellationTokenSource();
             _lastError = null;
+
+            int port = Port;
+            if (TryStartOnPort(port, out Exception error))
+                return;
+
+            if (IsAddressAlreadyInUse(error))
+            {
+                Debug.LogWarning($"[Patina] TCP bridge port {port} is already in use. Trying to release the existing listener before retrying.");
+                PortReleaseResult releaseResult = TryReleasePortOwner(port);
+
+                Exception retryError = null;
+                if (releaseResult.Released && TryStartOnPort(port, out retryError))
+                    return;
+
+                _lastError = BuildPortUnavailableMessage(port, releaseResult, retryError);
+                Debug.LogError("[Patina] " + _lastError);
+                return;
+            }
+
+            _lastError = error.Message;
+            Debug.LogError($"[Patina] Failed to start TCP bridge on port {port}: {error.Message}");
+        }
+
+        private static bool TryStartOnPort(int port, out Exception error)
+        {
+            error = null;
+            CleanupStartAttempt();
+
+            CancellationTokenSource cts = new CancellationTokenSource();
+            TcpListener listener = null;
 
             try
             {
-                _listener = new TcpListener(IPAddress.Loopback, port);
-                _listener.Server.NoDelay = true;
-                _listener.Start();
+                listener = new TcpListener(IPAddress.Loopback, port);
+                listener.Server.NoDelay = true;
+                listener.Start();
+
+                _cts = cts;
+                _listener = listener;
                 Interlocked.Exchange(ref _isRunning, 1);
 
-                _listenerThread = new Thread(() => ListenLoop(_cts.Token));
+                _listenerThread = new Thread(() => ListenLoop(cts.Token));
                 _listenerThread.IsBackground = true;
                 _listenerThread.Name = "Patina-TcpBridge";
                 _listenerThread.Start();
 
                 Debug.Log($"[Patina] Bridge server started on tcp://127.0.0.1:{port}/");
+                return true;
             }
             catch (Exception ex)
             {
-                _lastError = ex.Message;
-                Debug.LogError($"[Patina] Failed to start TCP bridge on port {port}: {ex.Message}");
+                error = ex;
                 Interlocked.Exchange(ref _isRunning, 0);
-                if (_listener != null)
-                    _listener.Stop();
-                _listener = null;
-                if (_cts != null)
-                    _cts.Dispose();
-                _cts = null;
+                try
+                {
+                    if (listener != null)
+                        listener.Stop();
+                }
+                catch
+                {
+                }
+
+                cts.Dispose();
+                CleanupStartAttempt();
+                return false;
             }
         }
 
@@ -118,6 +155,236 @@ namespace Patina.Editor
                 _connectedClients = 0;
                 Debug.Log("[Patina] Bridge server stopped.");
             }
+        }
+
+        private static void CleanupStartAttempt()
+        {
+            try
+            {
+                if (_listener != null)
+                    _listener.Stop();
+            }
+            catch
+            {
+            }
+            finally
+            {
+                _listener = null;
+                if (_cts != null)
+                    _cts.Dispose();
+                _cts = null;
+                _listenerThread = null;
+                _connectedClients = 0;
+            }
+        }
+
+        private static bool IsAddressAlreadyInUse(Exception error)
+        {
+            SocketException socketException = error as SocketException;
+            if (socketException != null)
+                return socketException.SocketErrorCode == SocketError.AddressAlreadyInUse;
+
+            return error != null
+                   && !string.IsNullOrEmpty(error.Message)
+                   && error.Message.IndexOf("address already in use", StringComparison.OrdinalIgnoreCase) >= 0;
+        }
+
+        private static PortReleaseResult TryReleasePortOwner(int port)
+        {
+            if (Environment.OSVersion.Platform != PlatformID.Win32NT)
+                return PortReleaseResult.Failed("Automatic listener cleanup is only supported on Windows.");
+
+            int? pid = FindTcpListenerPid(port);
+            if (!pid.HasValue)
+                return PortReleaseResult.Failed("Windows reports the port as occupied, but Patina could not resolve the owning PID.");
+
+            int currentPid = System.Diagnostics.Process.GetCurrentProcess().Id;
+            if (pid.Value == currentPid)
+                return PortReleaseResult.Failed("The port is owned by the current Unity Editor process. Restart Unity to clear the stale in-process listener.");
+
+            if (pid.Value <= 4)
+                return PortReleaseResult.Failed($"The port is owned by protected Windows PID {pid.Value}; Patina will not terminate it automatically.");
+
+            string processName = GetProcessName(pid.Value);
+            if (IsUnityProcess(processName))
+                return PortReleaseResult.Failed($"The port is owned by Unity PID {pid.Value}. Patina will not force-close another Unity Editor automatically; close that editor or change its Patina port, then retry.");
+
+            if (!IsPatinaBridgeProcess(processName))
+                return PortReleaseResult.Failed($"The port is owned by PID {pid.Value} ({DescribeProcess(processName)}), which does not look like a Patina Unity bridge process. Patina will not terminate unrelated processes automatically.");
+
+            ProcessResult killResult = RunProcess("taskkill.exe", "/PID " + pid.Value + " /F");
+            if (killResult.ExitCode != 0)
+                return PortReleaseResult.Failed($"Patina found PID {pid.Value} on the bridge port but taskkill failed: {killResult.Output}");
+
+            Thread.Sleep(500);
+            Debug.LogWarning($"[Patina] Terminated process {pid.Value} to release TCP bridge port {port}.");
+            return PortReleaseResult.Success(pid.Value);
+        }
+
+        private static string GetProcessName(int pid)
+        {
+            try
+            {
+                using (System.Diagnostics.Process process = System.Diagnostics.Process.GetProcessById(pid))
+                {
+                    return process.ProcessName;
+                }
+            }
+            catch
+            {
+                return null;
+            }
+        }
+
+        private static bool IsUnityProcess(string processName)
+        {
+            if (string.IsNullOrWhiteSpace(processName))
+                return false;
+
+            return processName.Equals("Unity", StringComparison.OrdinalIgnoreCase)
+                   || processName.Equals("Unity.exe", StringComparison.OrdinalIgnoreCase);
+        }
+
+        private static bool IsPatinaBridgeProcess(string processName)
+        {
+            if (string.IsNullOrWhiteSpace(processName))
+                return false;
+
+            return processName.Equals("patina-server", StringComparison.OrdinalIgnoreCase)
+                   || processName.Equals("patina-server.exe", StringComparison.OrdinalIgnoreCase);
+        }
+
+        private static string DescribeProcess(string processName)
+        {
+            return string.IsNullOrWhiteSpace(processName) ? "unresolved process name" : processName;
+        }
+
+        private static int? FindTcpListenerPid(int port)
+        {
+            ProcessResult result = RunProcess("netstat.exe", "-ano -p tcp");
+            if (result.ExitCode != 0)
+                return null;
+
+            string marker = ":" + port;
+            string[] lines = result.Output.Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries);
+            foreach (string line in lines)
+            {
+                string trimmed = line.Trim();
+                if (!trimmed.StartsWith("TCP", StringComparison.OrdinalIgnoreCase)
+                    || trimmed.IndexOf(marker, StringComparison.OrdinalIgnoreCase) < 0)
+                {
+                    continue;
+                }
+
+                string[] parts = trimmed.Split((char[])null, StringSplitOptions.RemoveEmptyEntries);
+                if (parts.Length < 5)
+                    continue;
+
+                string localAddress = parts[1];
+                string state = parts[3];
+                string pidText = parts[4];
+                if (!localAddress.Equals("127.0.0.1" + marker, StringComparison.OrdinalIgnoreCase)
+                    || !state.Equals("LISTENING", StringComparison.OrdinalIgnoreCase))
+                {
+                    continue;
+                }
+
+                if (int.TryParse(pidText, out int pid))
+                    return pid;
+            }
+
+            return null;
+        }
+
+        private static ProcessResult RunProcess(string fileName, string arguments)
+        {
+            try
+            {
+                System.Diagnostics.ProcessStartInfo startInfo = new System.Diagnostics.ProcessStartInfo
+                {
+                    FileName = fileName,
+                    Arguments = arguments,
+                    CreateNoWindow = true,
+                    UseShellExecute = false,
+                    RedirectStandardOutput = true,
+                    RedirectStandardError = true
+                };
+
+                using (System.Diagnostics.Process process = System.Diagnostics.Process.Start(startInfo))
+                {
+                    if (process == null)
+                        return new ProcessResult(-1, "Process did not start.");
+
+                    Task<string> outputTask = process.StandardOutput.ReadToEndAsync();
+                    Task<string> errorTask = process.StandardError.ReadToEndAsync();
+
+                    if (!process.WaitForExit(5000))
+                    {
+                        try
+                        {
+                            process.Kill();
+                        }
+                        catch
+                        {
+                        }
+
+                        return new ProcessResult(-1, "Process timed out.");
+                    }
+
+                    if (!Task.WaitAll(new Task[] { outputTask, errorTask }, 1000))
+                        return new ProcessResult(-1, "Process output timed out.");
+
+                    string output = outputTask.Result;
+                    string error = errorTask.Result;
+                    return new ProcessResult(process.ExitCode, (output + " " + error).Trim());
+                }
+            }
+            catch (Exception ex)
+            {
+                return new ProcessResult(-1, ex.Message);
+            }
+        }
+
+        private static string BuildPortUnavailableMessage(int port, PortReleaseResult releaseResult, Exception retryError)
+        {
+            string retryMessage = retryError == null ? string.Empty : " Retry failed: " + retryError.Message;
+            return $"Patina could not bind tcp://127.0.0.1:{port}/ and could not automatically release the existing listener. {releaseResult.Message}{retryMessage} Close the process using the port or restart Unity, then retry.";
+        }
+
+        private sealed class PortReleaseResult
+        {
+            private PortReleaseResult(bool released, int? pid, string message)
+            {
+                Released = released;
+                Pid = pid;
+                Message = message;
+            }
+
+            public bool Released { get; }
+            public int? Pid { get; }
+            public string Message { get; }
+
+            public static PortReleaseResult Success(int pid)
+            {
+                return new PortReleaseResult(true, pid, "Released the existing bridge listener.");
+            }
+
+            public static PortReleaseResult Failed(string message)
+            {
+                return new PortReleaseResult(false, null, message);
+            }
+        }
+
+        private readonly struct ProcessResult
+        {
+            public ProcessResult(int exitCode, string output)
+            {
+                ExitCode = exitCode;
+                Output = output;
+            }
+
+            public int ExitCode { get; }
+            public string Output { get; }
         }
 
         private static void ListenLoop(CancellationToken token)
