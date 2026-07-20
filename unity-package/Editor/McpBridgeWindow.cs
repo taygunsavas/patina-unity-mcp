@@ -26,6 +26,7 @@ namespace Patina.Editor
         private Toggle _localRuntimeToggle;
         private Button _startButton;
         private Button _stopButton;
+        private Button _restartButton;
         private Button _setupButton;
         private Button _removeButton;
         private ScrollView _resultsContainer;
@@ -228,8 +229,15 @@ namespace Patina.Editor
             _stopButton.style.minWidth = 140;
             _stopButton.style.marginBottom = 4;
 
+            _restartButton = new Button(McpBridgeServer.Restart) { text = "Restart Server" };
+            _restartButton.style.flexGrow = 1;
+            _restartButton.style.height = 28;
+            _restartButton.style.minWidth = 140;
+            _restartButton.style.marginBottom = 4;
+
             controlsRow.Add(_startButton);
             controlsRow.Add(_stopButton);
+            controlsRow.Add(_restartButton);
             statusBox.Add(controlsRow);
 
             foldout.Add(statusBox);
@@ -238,7 +246,8 @@ namespace Patina.Editor
 
         private void RefreshUI()
         {
-            bool running = McpBridgeServer.IsRunning;
+            BridgeStatusSnapshot bridgeStatus = McpBridgeServer.GetStatusSnapshot();
+            bool running = bridgeStatus.IsBridgeUsable;
             string binaryPath = ProcessManager.FindServerBinary();
             bool hasBinary = !string.IsNullOrEmpty(binaryPath);
             string runtimeStatusMessage = ProcessManager.GetRuntimeStatusMessage();
@@ -248,13 +257,11 @@ namespace Patina.Editor
                 ? "Ready to configure local host integrations automatically."
                 : HostSetupManager.BuildOverallSummary(_lastSetupResults);
 
-            _statusLabel.text = running ? "Running" : "Stopped";
-            _statusLabel.style.color = running
-                ? new Color(0.2f, 0.8f, 0.2f)
-                : new Color(0.8f, 0.2f, 0.2f);
+            _statusLabel.text = GetBridgeStateLabel(bridgeStatus.State);
+            _statusLabel.style.color = GetBridgeStateColor(bridgeStatus.State);
 
-            _portDisplayLabel.text = McpBridgeServer.Port.ToString();
-            _clientsLabel.text = McpBridgeServer.ConnectedClients.ToString();
+            _portDisplayLabel.text = bridgeStatus.Port.ToString();
+            _clientsLabel.text = bridgeStatus.TrackedClientCount.ToString();
             _runtimeSourceLabel.text = ProcessManager.GetRuntimeSourceLabel();
             _binaryPathLabel.text = hasBinary
                 ? binaryPath
@@ -272,8 +279,9 @@ namespace Patina.Editor
 
             _setupButton.SetEnabled(hasBinary);
             _removeButton.SetEnabled(true);
-            _startButton.SetEnabled(!running);
-            _stopButton.SetEnabled(running);
+            _startButton.SetEnabled(CanStartBridge(bridgeStatus.State));
+            _stopButton.SetEnabled(CanStopBridge(bridgeStatus.State));
+            _restartButton.SetEnabled(true);
             _localRuntimeToggle.style.display = contributorModeAvailable ? DisplayStyle.Flex : DisplayStyle.None;
             _localRuntimeToggle.SetValueWithoutNotify(ProcessManager.IsLocalRuntimeOverrideRequested);
             _developmentHelpBox.text = contributorModeAvailable
@@ -285,23 +293,8 @@ namespace Patina.Editor
                     ? HelpBoxMessageType.Error
                     : HelpBoxMessageType.Info;
 
-            if (running)
-            {
-                _serverHelpBox.text = McpBridgeServer.ConnectedClients > 0
-                    ? "Unity bridge is listening on local TCP and has an attached Patina client."
-                    : "Unity bridge is listening on local TCP and waiting for a Patina client connection.";
-                _serverHelpBox.messageType = HelpBoxMessageType.Info;
-            }
-            else if (!string.IsNullOrEmpty(McpBridgeServer.LastError))
-            {
-                _serverHelpBox.text = McpBridgeServer.LastError;
-                _serverHelpBox.messageType = HelpBoxMessageType.Error;
-            }
-            else
-            {
-                _serverHelpBox.text = "Bridge server is stopped. Start it manually only when debugging transport issues.";
-                _serverHelpBox.messageType = HelpBoxMessageType.Warning;
-            }
+            _serverHelpBox.text = BuildBridgeHelpText(bridgeStatus);
+            _serverHelpBox.messageType = GetBridgeHelpType(bridgeStatus.State);
 
             if (_lastSetupResults == null)
             {
@@ -310,6 +303,86 @@ namespace Patina.Editor
                     : runtimeStatusMessage;
                 _setupHelpBox.messageType = hasBinary ? HelpBoxMessageType.Info : HelpBoxMessageType.Error;
             }
+        }
+
+        private static bool CanStartBridge(BridgeRuntimeState state)
+        {
+            return state == BridgeRuntimeState.Stopped
+                   || state == BridgeRuntimeState.Error
+                   || state == BridgeRuntimeState.PortOwnedByOtherProcess
+                   || state == BridgeRuntimeState.PoisonedPort
+                   || state == BridgeRuntimeState.StaleInProcess;
+        }
+
+        private static bool CanStopBridge(BridgeRuntimeState state)
+        {
+            return state == BridgeRuntimeState.Running;
+        }
+
+        private static string GetBridgeStateLabel(BridgeRuntimeState state)
+        {
+            switch (state)
+            {
+                case BridgeRuntimeState.Running:
+                    return "Running";
+                case BridgeRuntimeState.DetachedAlive:
+                    return "Detached Alive";
+                case BridgeRuntimeState.StaleInProcess:
+                    return "Stale In-Process";
+                case BridgeRuntimeState.PoisonedPort:
+                    return "Poisoned Port";
+                case BridgeRuntimeState.PortOwnedByOtherProcess:
+                    return "Port Busy";
+                case BridgeRuntimeState.Error:
+                    return "Error";
+                case BridgeRuntimeState.Starting:
+                    return "Starting";
+                case BridgeRuntimeState.Stopping:
+                    return "Stopping";
+                default:
+                    return "Stopped";
+            }
+        }
+
+        private static Color GetBridgeStateColor(BridgeRuntimeState state)
+        {
+            switch (state)
+            {
+                case BridgeRuntimeState.Running:
+                    return new Color(0.2f, 0.8f, 0.2f);
+                case BridgeRuntimeState.DetachedAlive:
+                case BridgeRuntimeState.Starting:
+                case BridgeRuntimeState.Stopping:
+                case BridgeRuntimeState.PortOwnedByOtherProcess:
+                    return new Color(0.9f, 0.7f, 0.2f);
+                default:
+                    return new Color(0.85f, 0.3f, 0.3f);
+            }
+        }
+
+        private static HelpBoxMessageType GetBridgeHelpType(BridgeRuntimeState state)
+        {
+            switch (state)
+            {
+                case BridgeRuntimeState.Running:
+                    return HelpBoxMessageType.Info;
+                case BridgeRuntimeState.DetachedAlive:
+                case BridgeRuntimeState.Starting:
+                case BridgeRuntimeState.Stopping:
+                case BridgeRuntimeState.PortOwnedByOtherProcess:
+                    return HelpBoxMessageType.Warning;
+                default:
+                    return HelpBoxMessageType.Error;
+            }
+        }
+
+        private static string BuildBridgeHelpText(BridgeStatusSnapshot status)
+        {
+            string owner = status.ListenerPid.HasValue
+                ? $" Listener PID: {status.ListenerPid.Value} ({(string.IsNullOrEmpty(status.ListenerProcessName) ? "unknown" : status.ListenerProcessName)})."
+                : string.Empty;
+            string ping = string.IsNullOrEmpty(status.PingMessage) ? string.Empty : " Ping: " + status.PingMessage;
+            return status.Message + owner + ping;
         }
 
         private void OnOneClickSetup()
