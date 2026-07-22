@@ -958,7 +958,12 @@ mod tests {
             Some("a"),
         )
         .await;
-        let _ = read_json(&mut unity_reader).await.unwrap();
+        loop {
+            let envelope = read_json(&mut unity_reader).await.unwrap().unwrap();
+            if envelope["request"]["id"] == "pending" {
+                break;
+            }
+        }
         drop(unity_writer);
         drop(unity_reader);
         let response = tokio::time::timeout(Duration::from_millis(200), read_json(&mut reader))
