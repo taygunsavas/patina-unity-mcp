@@ -75,6 +75,8 @@ namespace Patina.Editor
         private const int DefaultPort = 9800;
         private const int MaxFrameBytes = 4 * 1024 * 1024;
         private const int ProbeTimeoutMilliseconds = 250;
+        private const int StartupProbeGraceMilliseconds = 2000;
+        private const int ConsecutiveProbeFailuresForStale = 3;
 
         private const int ListenerShutdownJoinMilliseconds = 1000;
         private const int PortReleaseTimeoutMilliseconds = 1000;
@@ -138,7 +140,7 @@ namespace Patina.Editor
             if (runtime != null)
             {
                 BridgeStatusSnapshot snapshot = GetStatusSnapshot(true);
-                if (snapshot.IsBridgeUsable)
+                if (runtime.IsRunning && snapshot.IsBridgeUsable)
                     return;
 
                 StopRuntime(runtime, logStopped: false);
@@ -218,8 +220,9 @@ namespace Patina.Editor
         private static BridgeStatusSnapshot BuildStatusSnapshot()
         {
             int port = Port;
-            int trackedClients = ConnectedClients;
-            bool managedRunning = IsRunning;
+            BridgeRuntimeGeneration runtime = GetCurrentRuntime();
+            int trackedClients = runtime == null ? 0 : runtime.ConnectedClientCount;
+            bool managedRunning = runtime != null && runtime.IsRunning;
             int currentPid = System.Diagnostics.Process.GetCurrentProcess().Id;
             int? listenerPid = FindTcpListenerPid(port);
             string ownerProcessName = listenerPid.HasValue ? GetProcessName(listenerPid.Value) : null;
@@ -233,7 +236,7 @@ namespace Patina.Editor
                 if (listenerPid.HasValue && listenerPid.Value == currentPid)
                 {
                     probe = ProbeBridge(port);
-                    if (probe.Success)
+                    if (!runtime.IsStaleAfterProbe(probe.Success))
                     {
                         state = BridgeRuntimeState.Running;
                         message = trackedClients > 0
@@ -244,7 +247,7 @@ namespace Patina.Editor
                     {
                         state = BridgeRuntimeState.StaleInProcess;
                         restartRequired = true;
-                        message = "This Unity Editor owns the Patina bridge port and managed state says it is running, but protocol ping failed. Restart can attempt an owned-runtime cleanup before rebinding.";
+                        message = "This Unity Editor owns the Patina bridge port and three consecutive protocol pings failed after startup. Restart can attempt an owned-runtime cleanup before rebinding.";
                     }
                 }
                 else if (!listenerPid.HasValue)
@@ -274,6 +277,12 @@ namespace Patina.Editor
                 message = string.IsNullOrEmpty(_lastError)
                     ? "Bridge server is stopped. Start it manually only when debugging transport issues."
                     : _lastError;
+            }
+            else if (runtime != null && listenerPid.Value == currentPid)
+            {
+                state = BridgeRuntimeState.StaleInProcess;
+                restartRequired = true;
+                message = "The managed bridge runtime was stopped but its listener has not released the port. Patina retained the runtime handle so Restart can retry cleanup.";
             }
             else if (listenerPid.Value == currentPid)
             {
@@ -491,15 +500,15 @@ namespace Patina.Editor
                 return;
 
             runtime.Shutdown(joinListenerThread: true);
-            ClearCurrentRuntime(runtime);
-            InvalidateStatusSnapshot();
-
-            int? listenerPid = FindTcpListenerPid(runtime.Port);
-            if (listenerPid.HasValue && listenerPid.Value == System.Diagnostics.Process.GetCurrentProcess().Id)
+            if (!WaitForPortRelease(runtime.Port, out string releaseMessage))
             {
-                SetLastError($"Patina stopped its managed bridge runtime, but tcp://127.0.0.1:{runtime.Port}/ is still owned by this Unity process. Restart Unity if the listener remains unresponsive.");
+                InvalidateStatusSnapshot();
+                SetLastError($"Patina stopped its managed bridge runtime, but tcp://127.0.0.1:{runtime.Port}/ did not release. The managed runtime handle is retained for another cleanup attempt. {releaseMessage}");
                 return;
             }
+
+            ClearCurrentRuntime(runtime);
+            InvalidateStatusSnapshot();
 
             if (logStopped)
                 Debug.Log("[Patina] Bridge server stopped.");
@@ -565,9 +574,34 @@ namespace Patina.Editor
             if (listener == null)
                 return;
 
+            Socket listenerSocket = null;
+            try
+            {
+                listenerSocket = listener.Server;
+            }
+            catch
+            {
+            }
+
             try
             {
                 listener.Stop();
+            }
+            catch
+            {
+            }
+
+            try
+            {
+                listenerSocket?.Close();
+            }
+            catch
+            {
+            }
+
+            try
+            {
+                listenerSocket?.Dispose();
             }
             catch
             {
@@ -811,6 +845,8 @@ namespace Patina.Editor
             private Thread _listenerThread;
             private int _ctsDisposed;
             private int _isRunning;
+            private int _consecutiveProbeFailures;
+            private readonly DateTime _startedAtUtc = DateTime.UtcNow;
 
             public BridgeRuntimeGeneration(int port, TcpListener listener, CancellationTokenSource cts)
             {
@@ -844,6 +880,20 @@ namespace Patina.Editor
             public void MarkRunning()
             {
                 Interlocked.Exchange(ref _isRunning, 1);
+            }
+
+            public bool IsStaleAfterProbe(bool succeeded)
+            {
+                if (succeeded)
+                {
+                    Interlocked.Exchange(ref _consecutiveProbeFailures, 0);
+                    return false;
+                }
+
+                if ((DateTime.UtcNow - _startedAtUtc).TotalMilliseconds < StartupProbeGraceMilliseconds)
+                    return false;
+
+                return Interlocked.Increment(ref _consecutiveProbeFailures) >= ConsecutiveProbeFailuresForStale;
             }
 
             public void Shutdown(bool joinListenerThread)
@@ -1063,11 +1113,23 @@ namespace Patina.Editor
             {
                 if (!token.IsCancellationRequested || unexpectedExit)
                 {
-                    runtime.Shutdown(joinListenerThread: false);
-                    ClearCurrentRuntime(runtime);
-                    InvalidateStatusSnapshot();
+                    CleanupRuntimeAfterListenerExit(runtime);
                 }
             }
+        }
+
+        private static void CleanupRuntimeAfterListenerExit(BridgeRuntimeGeneration runtime)
+        {
+            runtime.Shutdown(joinListenerThread: false);
+            if (!WaitForPortRelease(runtime.Port, out string releaseMessage))
+            {
+                InvalidateStatusSnapshot();
+                SetLastError($"Patina listener thread exited, but tcp://127.0.0.1:{runtime.Port}/ did not release. The managed runtime handle is retained for another cleanup attempt. {releaseMessage}");
+                return;
+            }
+
+            ClearCurrentRuntime(runtime);
+            InvalidateStatusSnapshot();
         }
 
         private static async Task HandleClientAsync(BridgeRuntimeGeneration runtime, TcpClient client)
@@ -1158,13 +1220,28 @@ namespace Patina.Editor
 
         private static bool IsExpectedClientClose(Exception ex, BridgeRuntimeGeneration runtime)
         {
-            if (!runtime.Token.IsCancellationRequested && runtime.IsRunning)
-                return false;
+            if (ex is ObjectDisposedException)
+                return true;
 
-            return ex is ObjectDisposedException
-                   || ex is SocketException
-                   || ex is InvalidOperationException
-                   || ex is System.IO.IOException;
+            SocketException socketException = ex as SocketException;
+            if (socketException != null && IsNormalClientDisconnect(socketException.SocketErrorCode))
+                return true;
+
+            System.IO.IOException ioException = ex as System.IO.IOException;
+            SocketException innerSocketException = ioException?.InnerException as SocketException;
+            if (innerSocketException != null && IsNormalClientDisconnect(innerSocketException.SocketErrorCode))
+                return true;
+
+            return runtime.Token.IsCancellationRequested
+                   && (ex is SocketException || ex is InvalidOperationException || ex is System.IO.IOException);
+        }
+
+        private static bool IsNormalClientDisconnect(SocketError error)
+        {
+            return error == SocketError.ConnectionAborted
+                   || error == SocketError.ConnectionReset
+                   || error == SocketError.Shutdown
+                   || error == SocketError.NotConnected;
         }
 
         private static bool IsEditorLikelyBlocked()

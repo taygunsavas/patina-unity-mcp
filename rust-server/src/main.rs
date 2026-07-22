@@ -39,16 +39,14 @@ async fn main() -> anyhow::Result<()> {
     info!("Starting Patina server, bridge port={}", port);
 
     let bridge = BridgeClient::new(port);
-    let bridge_for_connect = bridge.clone();
-    tokio::spawn(async move {
-        if let Err(error) = bridge_for_connect.connect().await {
-            tracing::error!("Initial Unity bridge connection failed: {}", error);
-        }
-    });
+    bridge.start().await;
 
-    let handler = UnityMcpServer::new(bridge);
-    let service = handler.serve(stdio()).await?;
-    service.waiting().await?;
+    let handler = UnityMcpServer::new(bridge.clone());
+    let service_result: anyhow::Result<()> = match handler.serve(stdio()).await {
+        Ok(service) => service.waiting().await.map(|_| ()).map_err(Into::into),
+        Err(error) => Err(error.into()),
+    };
+    bridge.shutdown().await;
 
-    Ok(())
+    service_result
 }
