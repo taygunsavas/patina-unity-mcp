@@ -7,8 +7,6 @@ namespace Patina.Editor
 {
     public class McpBridgeWindow : EditorWindow
     {
-        private const string PortPrefsKey = "Patina.Port";
-        private const int DefaultPort = 9800;
         private const string AutoOpenSessionKey = "Patina.WindowAutoOpened";
 
         private Label _summaryLabel;
@@ -22,7 +20,6 @@ namespace Patina.Editor
         private HelpBox _registrationHelpBox;
         private HelpBox _setupHelpBox;
         private HelpBox _developmentHelpBox;
-        private IntegerField _portField;
         private Toggle _localRuntimeToggle;
         private Button _startButton;
         private Button _stopButton;
@@ -189,28 +186,6 @@ namespace Patina.Editor
             _serverHelpBox = new HelpBox(string.Empty, HelpBoxMessageType.Info);
             _serverHelpBox.style.marginTop = 6;
             statusBox.Add(_serverHelpBox);
-
-            VisualElement configRow = new VisualElement();
-            configRow.style.flexDirection = FlexDirection.Row;
-            configRow.style.flexWrap = Wrap.Wrap;
-            configRow.style.alignItems = Align.Center;
-            configRow.style.marginTop = 6;
-
-            int savedPort = EditorPrefs.GetInt(PortPrefsKey, DefaultPort);
-            _portField = new IntegerField("Port")
-            {
-                value = savedPort
-            };
-            _portField.style.flexGrow = 1;
-
-            Button applyButton = new Button(OnApplyPort) { text = "Apply" };
-            applyButton.style.width = 70;
-            applyButton.style.minWidth = 70;
-            applyButton.style.marginBottom = 4;
-
-            configRow.Add(_portField);
-            configRow.Add(applyButton);
-            statusBox.Add(configRow);
 
             VisualElement controlsRow = new VisualElement();
             controlsRow.style.flexDirection = FlexDirection.Row;
@@ -544,30 +519,6 @@ namespace Patina.Editor
                     return "Restart this host to unload the removed Patina MCP entry.";
                 default:
                     return "Restart this host after applying the config snippet or automatic setup.";
-            }
-        }
-
-        private void OnApplyPort()
-        {
-            int newPort = _portField.value;
-            if (newPort > 0 && newPort < 65536)
-            {
-                EditorPrefs.SetInt(PortPrefsKey, newPort);
-                McpBridgeServer.SetPort(newPort);
-
-                if (McpBridgeServer.IsRunning)
-                {
-                    McpBridgeServer.Stop();
-                    McpBridgeServer.Start();
-                }
-
-                Debug.Log($"[Patina] Port set to {newPort}.");
-                RefreshUI();
-            }
-            else
-            {
-                Debug.LogWarning("[Patina] Invalid port number. Must be between 1 and 65535.");
-                _portField.value = EditorPrefs.GetInt(PortPrefsKey, DefaultPort);
             }
         }
 
