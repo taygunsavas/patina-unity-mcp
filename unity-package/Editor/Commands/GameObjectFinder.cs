@@ -14,15 +14,22 @@ namespace Patina.Editor.Commands
         {
             if (instanceId != 0)
             {
-                var obj = EditorUtility.InstanceIDToObject(instanceId) as GameObject;
+                var obj = EditorUtility.EntityIdToObject(instanceId) as GameObject;
                 if (obj != null && obj.scene.IsValid())
                     return obj;
             }
 
-            foreach (GameObject go in UnityEngine.Object.FindObjectsByType<GameObject>(FindObjectsInactive.Include, FindObjectsSortMode.None))
+            foreach (
+                GameObject go in UnityEngine.Object.FindObjectsByType<GameObject>(
+                    FindObjectsInactive.Include,
+                    FindObjectsSortMode.None
+                )
+            )
             {
-                if (go == null) continue;
-                if (go.hideFlags != HideFlags.None) continue;
+                if (go == null)
+                    continue;
+                if (go.hideFlags != HideFlags.None)
+                    continue;
                 if (go.scene.IsValid() && go.name == name)
                     return go;
             }
@@ -36,7 +43,8 @@ namespace Patina.Editor.Commands
         /// </summary>
         internal static string GetScenePath(GameObject go)
         {
-            if (go == null) return string.Empty;
+            if (go == null)
+                return string.Empty;
             var parts = new System.Collections.Generic.List<string>();
             Transform t = go.transform;
             while (t != null)
@@ -48,4 +56,3 @@ namespace Patina.Editor.Commands
         }
     }
 }
-

@@ -1,7 +1,8 @@
-using Newtonsoft.Json.Linq;
 using System.Threading.Tasks;
+using Newtonsoft.Json.Linq;
 using UnityEditor;
 using UnityEngine;
+using UnityEngine.Rendering;
 
 namespace Patina.Editor.Commands
 {
@@ -28,36 +29,55 @@ namespace Patina.Editor.Commands
             {
                 var material = AssetDatabase.LoadAssetAtPath<Material>(capturedPath);
                 if (material == null)
-                    throw new System.InvalidOperationException($"Material not found at: {capturedPath}");
+                    throw new System.InvalidOperationException(
+                        $"Material not found at: {capturedPath}"
+                    );
 
                 if (!material.HasProperty(capturedProp))
-                    throw new System.InvalidOperationException($"Property '{capturedProp}' not found on shader '{material.shader.name}'");
+                    throw new System.InvalidOperationException(
+                        $"Property '{capturedProp}' not found on shader '{material.shader.name}'"
+                    );
 
                 var shader = material.shader;
                 int propIndex = -1;
-                for (int pi = 0; pi < ShaderUtil.GetPropertyCount(shader); pi++)
+                for (int pi = 0; pi < shader.GetPropertyCount(); pi++)
                 {
-                    if (ShaderUtil.GetPropertyName(shader, pi) == capturedProp)
+                    if (shader.GetPropertyName(pi) == capturedProp)
                     {
                         propIndex = pi;
                         break;
                     }
                 }
                 if (propIndex < 0)
-                    throw new System.InvalidOperationException($"Property '{capturedProp}' not found on shader '{shader.name}'");
+                    throw new System.InvalidOperationException(
+                        $"Property '{capturedProp}' not found on shader '{shader.name}'"
+                    );
 
-                var propType = ShaderUtil.GetPropertyType(shader, propIndex);
+                ShaderPropertyType propType = shader.GetPropertyType(propIndex);
 
-                if (capturedValue.Type == JTokenType.Float || capturedValue.Type == JTokenType.Integer)
+                if (
+                    capturedValue.Type == JTokenType.Float
+                    || capturedValue.Type == JTokenType.Integer
+                )
                 {
-                    if (propType != ShaderUtil.ShaderPropertyType.Float && propType != ShaderUtil.ShaderPropertyType.Range)
-                        throw new System.ArgumentException($"Numeric value requires a Float or Range property, but '{capturedProp}' is '{propType}'");
+                    if (
+                        propType != ShaderPropertyType.Float
+                        && propType != ShaderPropertyType.Range
+                    )
+                        throw new System.ArgumentException(
+                            $"Numeric value requires a Float or Range property, but '{capturedProp}' is '{propType}'"
+                        );
                     material.SetFloat(capturedProp, capturedValue.Value<float>());
                 }
                 else if (capturedValue.Type == JTokenType.Boolean)
                 {
-                    if (propType != ShaderUtil.ShaderPropertyType.Float && propType != ShaderUtil.ShaderPropertyType.Range)
-                        throw new System.ArgumentException($"Boolean value requires a Float or Range property, but '{capturedProp}' is '{propType}'");
+                    if (
+                        propType != ShaderPropertyType.Float
+                        && propType != ShaderPropertyType.Range
+                    )
+                        throw new System.ArgumentException(
+                            $"Boolean value requires a Float or Range property, but '{capturedProp}' is '{propType}'"
+                        );
                     material.SetFloat(capturedProp, capturedValue.Value<bool>() ? 1f : 0f);
                 }
                 else if (capturedValue.Type == JTokenType.Array)
@@ -71,15 +91,24 @@ namespace Patina.Editor.Commands
                     // Agent may have stringified the JSON value (e.g. "[0.2,0.8,0.4,1.0]" or "0.5").
                     // Try to parse and re-dispatch before treating as texture path.
                     JToken parsed = null;
-                    try { parsed = JToken.Parse(strVal); } catch { }
+                    try
+                    {
+                        parsed = JToken.Parse(strVal);
+                    }
+                    catch { }
 
                     if (parsed != null && parsed.Type != JTokenType.String)
                     {
                         // Re-dispatch with the correctly-typed token
                         if (parsed.Type == JTokenType.Float || parsed.Type == JTokenType.Integer)
                         {
-                            if (propType != ShaderUtil.ShaderPropertyType.Float && propType != ShaderUtil.ShaderPropertyType.Range)
-                                throw new System.ArgumentException($"Numeric value requires a Float or Range property, but '{capturedProp}' is '{propType}'");
+                            if (
+                                propType != ShaderPropertyType.Float
+                                && propType != ShaderPropertyType.Range
+                            )
+                                throw new System.ArgumentException(
+                                    $"Numeric value requires a Float or Range property, but '{capturedProp}' is '{propType}'"
+                                );
                             material.SetFloat(capturedProp, parsed.Value<float>());
                         }
                         else if (parsed.Type == JTokenType.Array)
@@ -88,24 +117,32 @@ namespace Patina.Editor.Commands
                         }
                         else
                         {
-                            throw new System.ArgumentException($"Unsupported parsed value type: {parsed.Type}");
+                            throw new System.ArgumentException(
+                                $"Unsupported parsed value type: {parsed.Type}"
+                            );
                         }
                     }
-                    else if (propType == ShaderUtil.ShaderPropertyType.TexEnv)
+                    else if (propType == ShaderPropertyType.Texture)
                     {
                         var texture = AssetDatabase.LoadAssetAtPath<Texture>(strVal);
                         if (texture == null)
-                            throw new System.InvalidOperationException($"Texture not found at: {strVal}");
+                            throw new System.InvalidOperationException(
+                                $"Texture not found at: {strVal}"
+                            );
                         material.SetTexture(capturedProp, texture);
                     }
                     else
                     {
-                        throw new System.ArgumentException($"String value requires a TexEnv property, but '{capturedProp}' is '{propType}'");
+                        throw new System.ArgumentException(
+                            $"String value requires a TexEnv property, but '{capturedProp}' is '{propType}'"
+                        );
                     }
                 }
                 else
                 {
-                    throw new System.ArgumentException($"Unsupported value type: {capturedValue.Type}");
+                    throw new System.ArgumentException(
+                        $"Unsupported value type: {capturedValue.Type}"
+                    );
                 }
 
                 EditorUtility.SetDirty(material);
@@ -115,30 +152,36 @@ namespace Patina.Editor.Commands
                 {
                     ["materialPath"] = capturedPath,
                     ["property"] = capturedProp,
-                    ["success"] = true
+                    ["success"] = true,
                 };
             });
         }
 
-        private static void ApplyArrayValue(Material material, string prop,
-            ShaderUtil.ShaderPropertyType propType, JArray arr)
+        private static void ApplyArrayValue(
+            Material material,
+            string prop,
+            ShaderPropertyType propType,
+            JArray arr
+        )
         {
             if (arr.Count < 3)
                 throw new System.ArgumentException("Array value must have at least 3 elements");
 
             float Get(int i, float def = 0f) => i < arr.Count ? arr[i].Value<float>() : def;
 
-            if (propType == ShaderUtil.ShaderPropertyType.Color)
+            if (propType == ShaderPropertyType.Color)
             {
                 material.SetColor(prop, new Color(Get(0), Get(1), Get(2), Get(3, 1f)));
             }
-            else if (propType == ShaderUtil.ShaderPropertyType.Vector)
+            else if (propType == ShaderPropertyType.Vector)
             {
                 material.SetVector(prop, new Vector4(Get(0), Get(1), Get(2), Get(3)));
             }
             else
             {
-                throw new System.ArgumentException($"Array value is not supported for shader property type '{propType}'");
+                throw new System.ArgumentException(
+                    $"Array value is not supported for shader property type '{propType}'"
+                );
             }
         }
     }

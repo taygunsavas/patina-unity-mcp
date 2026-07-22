@@ -6,7 +6,7 @@ use rmcp::{transport::stdio, ServiceExt};
 use tracing::info;
 use tracing_subscriber::{fmt, EnvFilter};
 
-use bridge::BridgeClient;
+use bridge::{broker, BridgeClient};
 use server::UnityMcpServer;
 
 fn parse_port() -> u16 {
@@ -36,6 +36,9 @@ async fn main() -> anyhow::Result<()> {
         .init();
 
     let port = parse_port();
+    if std::env::args().any(|arg| arg == "--broker") {
+        return broker::run(port).await;
+    }
     info!("Starting Patina server, bridge port={}", port);
 
     let bridge = BridgeClient::new(port);

@@ -10,6 +10,7 @@ namespace Patina.Editor
     {
         private Label _statusDot;
         private Label _statusLabel;
+        private Label _telemetryLabel;
         private Button _startButton;
         private Button _stopButton;
         private Button _restartButton;
@@ -33,6 +34,10 @@ namespace Patina.Editor
             _statusLabel.style.unityFontStyleAndWeight = FontStyle.Bold;
             _statusLabel.style.marginRight = 6;
             root.Add(_statusLabel);
+
+            _telemetryLabel = new Label();
+            _telemetryLabel.style.marginRight = 6;
+            root.Add(_telemetryLabel);
 
             _startButton = CreateButton("Start", McpBridgeServer.Start);
             _stopButton = CreateButton("Stop", McpBridgeServer.Stop);
@@ -66,6 +71,8 @@ namespace Patina.Editor
             BridgeStatusSnapshot status = McpBridgeServer.GetStatusSnapshot();
             _statusDot.style.color = GetDotColor(status.State);
             _statusLabel.text = GetShortLabel(status.State);
+            _telemetryLabel.text =
+                $"Agents {status.TrackedClientCount} | Editors {McpBridgeServer.ActiveUnitySessions} | {McpBridgeServer.LocalSessionHealth}";
             _statusLabel.tooltip = status.Message;
             _startButton.SetEnabled(CanStart(status.State));
             _stopButton.SetEnabled(CanStop(status.State));
@@ -75,10 +82,10 @@ namespace Patina.Editor
         private static bool CanStart(BridgeRuntimeState state)
         {
             return state == BridgeRuntimeState.Stopped
-                   || state == BridgeRuntimeState.Error
-                   || state == BridgeRuntimeState.PortOwnedByOtherProcess
-                   || state == BridgeRuntimeState.PoisonedPort
-                   || state == BridgeRuntimeState.StaleInProcess;
+                || state == BridgeRuntimeState.Error
+                || state == BridgeRuntimeState.PortOwnedByOtherProcess
+                || state == BridgeRuntimeState.PoisonedPort
+                || state == BridgeRuntimeState.StaleInProcess;
         }
 
         private static bool CanStop(BridgeRuntimeState state)

@@ -1,6 +1,7 @@
 using System.Threading.Tasks;
 using Newtonsoft.Json.Linq;
 using UnityEditor;
+using UnityEditor.Build;
 
 namespace Patina.Editor.Commands
 {
@@ -17,20 +18,29 @@ namespace Patina.Editor.Commands
                 {
                     EditorBuildSettingsScene s = buildScenes[i];
                     int buildIndex = s.enabled ? enabledCount++ : -1;
-                    scenes.Add(new JObject
-                    {
-                        ["path"] = s.path,
-                        ["enabled"] = s.enabled,
-                        ["buildIndex"] = buildIndex
-                    });
+                    scenes.Add(
+                        new JObject
+                        {
+                            ["path"] = s.path,
+                            ["enabled"] = s.enabled,
+                            ["buildIndex"] = buildIndex,
+                        }
+                    );
                 }
 
                 return new JObject
                 {
                     ["activeBuildTarget"] = EditorUserBuildSettings.activeBuildTarget.ToString(),
-                    ["scriptingBackend"] = PlayerSettings.GetScriptingBackend(
-                        BuildPipeline.GetBuildTargetGroup(EditorUserBuildSettings.activeBuildTarget)).ToString(),
-                    ["scenes"] = scenes
+                    ["scriptingBackend"] = PlayerSettings
+                        .GetScriptingBackend(
+                            NamedBuildTarget.FromBuildTargetGroup(
+                                BuildPipeline.GetBuildTargetGroup(
+                                    EditorUserBuildSettings.activeBuildTarget
+                                )
+                            )
+                        )
+                        .ToString(),
+                    ["scenes"] = scenes,
                 };
             });
 

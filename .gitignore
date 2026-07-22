@@ -1,6 +1,12 @@
 # Rust
 rust-server/target/
 
+# .NET build and test outputs
+**/bin/
+**/obj/
+TestResults/
+**/TestResults/
+
 # Unity
 
 

@@ -1,6 +1,7 @@
-using Newtonsoft.Json.Linq;
 using System.Threading.Tasks;
+using Newtonsoft.Json.Linq;
 using UnityEditor;
+using UnityEditor.Build;
 
 namespace Patina.Editor.Commands
 {
@@ -10,18 +11,23 @@ namespace Patina.Editor.Commands
         {
             return await MainThreadQueue.EnqueueAsync<JObject>(() =>
             {
-                string groupStr = parameters?["build_target_group"]?.Value<string>() ?? "Standalone";
-                BuildTargetGroup group = ParseBuildTargetGroup(groupStr);
+                string groupStr =
+                    parameters?["build_target_group"]?.Value<string>() ?? "Standalone";
+                NamedBuildTarget target = NamedBuildTarget.FromBuildTargetGroup(
+                    ParseBuildTargetGroup(groupStr)
+                );
 
                 return new JObject
                 {
                     ["productName"] = PlayerSettings.productName,
                     ["companyName"] = PlayerSettings.companyName,
                     ["bundleVersion"] = PlayerSettings.bundleVersion,
-                    ["applicationIdentifier"] = PlayerSettings.GetApplicationIdentifier(group),
-                    ["scriptingBackend"] = PlayerSettings.GetScriptingBackend(group).ToString(),
-                    ["apiCompatibilityLevel"] = PlayerSettings.GetApiCompatibilityLevel(group).ToString(),
-                    ["colorSpace"] = PlayerSettings.colorSpace.ToString()
+                    ["applicationIdentifier"] = PlayerSettings.GetApplicationIdentifier(target),
+                    ["scriptingBackend"] = PlayerSettings.GetScriptingBackend(target).ToString(),
+                    ["apiCompatibilityLevel"] = PlayerSettings
+                        .GetApiCompatibilityLevel(target)
+                        .ToString(),
+                    ["colorSpace"] = PlayerSettings.colorSpace.ToString(),
                 };
             });
         }
@@ -30,10 +36,14 @@ namespace Patina.Editor.Commands
         {
             switch (value)
             {
-                case "Android": return BuildTargetGroup.Android;
-                case "iOS": return BuildTargetGroup.iOS;
-                case "WebGL": return BuildTargetGroup.WebGL;
-                default: return BuildTargetGroup.Standalone;
+                case "Android":
+                    return BuildTargetGroup.Android;
+                case "iOS":
+                    return BuildTargetGroup.iOS;
+                case "WebGL":
+                    return BuildTargetGroup.WebGL;
+                default:
+                    return BuildTargetGroup.Standalone;
             }
         }
     }
