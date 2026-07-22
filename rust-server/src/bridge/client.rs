@@ -1,3 +1,4 @@
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -5,30 +6,49 @@ use dashmap::DashMap;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::tcp::{OwnedReadHalf, OwnedWriteHalf};
 use tokio::net::TcpStream;
-use tokio::sync::{oneshot, Mutex};
+use tokio::sync::{oneshot, watch, Mutex};
+use tokio::task::JoinHandle;
 use tracing::{error, info, warn};
 use uuid::Uuid;
 
 use super::protocol::{BridgeRequest, BridgeResponse};
 
 type PendingMap = Arc<DashMap<String, oneshot::Sender<BridgeResponse>>>;
-
 const MAX_FRAME_BYTES: usize = 4 * 1024 * 1024;
 
+struct PublishedWriter {
+    epoch: u64,
+    writer: OwnedWriteHalf,
+}
+
+/// A one-way lifecycle for the MCP process's single Unity TCP connection.
 pub struct BridgeClient {
-    writer: Mutex<Option<OwnedWriteHalf>>,
-    connect_guard: Mutex<()>,
+    writer: Mutex<Option<PublishedWriter>>,
+    /// Serializes publishing a newly connected writer with shutdown.
+    publication_lock: Mutex<()>,
+    lifecycle_task: Mutex<Option<JoinHandle<()>>>,
     pending: PendingMap,
     port: u16,
+    is_shutdown: AtomicBool,
+    shutdown_tx: watch::Sender<bool>,
+    reconnect_tx: watch::Sender<u64>,
+    next_epoch: AtomicU64,
 }
 
 impl BridgeClient {
     pub fn new(port: u16) -> Arc<Self> {
+        let (shutdown_tx, _) = watch::channel(false);
+        let (reconnect_tx, _) = watch::channel(0);
         Arc::new(Self {
             writer: Mutex::new(None),
-            connect_guard: Mutex::new(()),
+            publication_lock: Mutex::new(()),
+            lifecycle_task: Mutex::new(None),
             pending: Arc::new(DashMap::new()),
             port,
+            is_shutdown: AtomicBool::new(false),
+            shutdown_tx,
+            reconnect_tx,
+            next_epoch: AtomicU64::new(0),
         })
     }
 
@@ -36,118 +56,208 @@ impl BridgeClient {
         self.port
     }
 
-    pub async fn connect(self: &Arc<Self>) -> anyhow::Result<()> {
-        let mut backoff = Duration::from_millis(500);
-        let max_backoff = Duration::from_secs(30);
+    pub async fn start(self: &Arc<Self>) {
+        if self.is_shutdown() {
+            warn!("Bridge client start ignored after shutdown");
+            return;
+        }
+        let mut task = self.lifecycle_task.lock().await;
+        if task.is_none() {
+            let client = self.clone();
+            *task = Some(tokio::spawn(async move {
+                client.run_lifecycle().await;
+            }));
+        }
+    }
 
+    pub async fn shutdown(&self) {
+        if self.is_shutdown.swap(true, Ordering::AcqRel) {
+            return;
+        }
+        info!("Shutting down Unity bridge client");
+        let _publication = self.publication_lock.lock().await;
+        let _ = self.shutdown_tx.send(true);
+        self.clear_pending_requests();
+        self.close_published_writer().await;
+        drop(_publication);
+        if let Some(task) = self.lifecycle_task.lock().await.take() {
+            if let Err(error) = task.await {
+                warn!("Unity bridge lifecycle task ended unexpectedly: {}", error);
+            }
+        }
+    }
+
+    async fn run_lifecycle(self: Arc<Self>) {
         loop {
+            let (epoch, reader) = match self.connect_with_backoff().await {
+                Ok(connection) => connection,
+                Err(_) => return,
+            };
+            self.read_until_invalidated(epoch, reader).await;
+            self.clear_pending_requests();
+            self.close_published_writer_if_epoch(epoch).await;
+            if self.is_shutdown() {
+                return;
+            }
+            warn!("Bridge connection ended, reconnecting to Unity");
+        }
+    }
+
+    async fn connect_with_backoff(self: &Arc<Self>) -> Result<(u64, OwnedReadHalf), String> {
+        let mut backoff = Duration::from_millis(500);
+        while !self.is_shutdown() {
             match self.try_connect_once().await {
-                Ok(()) => return Ok(()),
+                Ok(reader) => return Ok(reader),
+                Err(error) if self.is_shutdown() => return Err(error),
                 Err(error) => {
                     warn!(
                         "Failed to connect to Unity bridge: {}. Retrying in {:?}",
                         error, backoff
                     );
-                    tokio::time::sleep(backoff).await;
-                    backoff = (backoff * 2).min(max_backoff);
-                }
-            }
-        }
-    }
-
-    async fn ensure_connected(self: &Arc<Self>) -> Result<(), String> {
-        if self.writer.lock().await.is_some() {
-            return Ok(());
-        }
-
-        let _guard = self.connect_guard.lock().await;
-        if self.writer.lock().await.is_some() {
-            return Ok(());
-        }
-
-        let deadline = tokio::time::Instant::now() + Duration::from_secs(5);
-        let mut backoff = Duration::from_millis(200);
-
-        loop {
-            match self.try_connect_once().await {
-                Ok(()) => return Ok(()),
-                Err(error) => {
-                    if tokio::time::Instant::now() + backoff >= deadline {
-                        return Err(format!(
-                            "Not connected to Unity bridge: {}. If Unity is open, it may be blocked by a modal dialog or save-changes prompt; resolve any Unity popup and retry.",
-                            error
-                        ));
+                    if !self.wait_or_shutdown(backoff).await {
+                        break;
                     }
-
-                    tokio::time::sleep(backoff).await;
-                    backoff = (backoff * 2).min(Duration::from_secs(1));
+                    backoff = (backoff * 2).min(Duration::from_secs(30));
                 }
             }
         }
+        Err("Unity bridge client is shutting down".to_string())
     }
 
-    async fn try_connect_once(self: &Arc<Self>) -> Result<(), String> {
-        if self.writer.lock().await.is_some() {
-            return Ok(());
+    async fn try_connect_once(self: &Arc<Self>) -> Result<(u64, OwnedReadHalf), String> {
+        if self.is_shutdown() {
+            return Err("Unity bridge client is shutting down".to_string());
         }
-
         let address = format!("127.0.0.1:{}", self.port);
         info!("Connecting to Unity bridge at tcp://{}", address);
-
-        let stream = TcpStream::connect(&address)
-            .await
-            .map_err(|error| error.to_string())?;
+        let mut shutdown = self.shutdown_tx.subscribe();
+        if *shutdown.borrow() {
+            return Err("Unity bridge client is shutting down".to_string());
+        }
+        let stream = tokio::select! {
+            result = TcpStream::connect(&address) => result.map_err(|error| error.to_string())?,
+            _ = shutdown.changed() => return Err("Unity bridge client is shutting down".to_string()),
+        };
         stream
             .set_nodelay(true)
             .map_err(|error| error.to_string())?;
-
         let (reader, writer) = stream.into_split();
-        *self.writer.lock().await = Some(writer);
-        self.spawn_read_loop(reader);
+
+        let _publication = self.publication_lock.lock().await;
+        if self.is_shutdown() || *self.shutdown_tx.borrow() {
+            drop(writer);
+            drop(reader);
+            return Err("Unity bridge client is shutting down".to_string());
+        }
+        let epoch = self.next_epoch.fetch_add(1, Ordering::AcqRel) + 1;
+        *self.writer.lock().await = Some(PublishedWriter { epoch, writer });
         info!("Connected to Unity bridge");
-        Ok(())
+        Ok((epoch, reader))
     }
 
-    fn spawn_read_loop(self: &Arc<Self>, mut reader: OwnedReadHalf) {
-        let pending = self.pending.clone();
-        let client = self.clone();
+    async fn ensure_connected(&self) -> Result<(), String> {
+        let deadline = tokio::time::Instant::now() + Duration::from_secs(5);
+        loop {
+            if self.is_shutdown() {
+                return Err("Unity bridge client is shutting down".to_string());
+            }
+            if self.writer.lock().await.is_some() {
+                return Ok(());
+            }
+            if tokio::time::Instant::now() >= deadline {
+                return Err("Not connected to Unity bridge. If Unity is open, it may be blocked by a modal dialog or save-changes prompt; resolve any Unity popup and retry.".to_string());
+            }
+            if !self.wait_or_shutdown(Duration::from_millis(50)).await {
+                return Err("Unity bridge client is shutting down".to_string());
+            }
+        }
+    }
 
-        tokio::spawn(async move {
-            loop {
-                match read_frame(&mut reader).await {
+    async fn read_until_invalidated(&self, epoch: u64, mut reader: OwnedReadHalf) {
+        let mut shutdown = self.shutdown_tx.subscribe();
+        let mut reconnect = self.reconnect_tx.subscribe();
+        if *shutdown.borrow() || !self.is_epoch_published(epoch).await {
+            return;
+        }
+        loop {
+            tokio::select! {
+                _ = shutdown.changed() => return,
+                _ = reconnect.changed() => return,
+                frame = read_frame(&mut reader) => match frame {
                     Ok(Some(text)) => match serde_json::from_str::<BridgeResponse>(&text) {
                         Ok(response) => {
                             let id = response.id.clone();
-                            if let Some((_, sender)) = pending.remove(&id) {
-                                let _ = sender.send(response);
-                            } else {
-                                warn!("Received response for unknown request id: {}", id);
-                            }
+                            if let Some((_, sender)) = self.pending.remove(&id) { let _ = sender.send(response); }
+                            else { warn!("Received response for unknown request id: {}", id); }
                         }
-                        Err(error) => {
-                            error!("Failed to parse bridge response: {}", error);
-                        }
+                        Err(error) => error!("Failed to parse bridge response: {}", error),
                     },
-                    Ok(None) => {
-                        warn!("Unity bridge closed the TCP connection");
-                        break;
-                    }
-                    Err(error) => {
-                        error!("Unity bridge read error: {}", error);
-                        break;
-                    }
+                    Ok(None) => { warn!("Unity bridge closed the TCP connection"); return; }
+                    Err(error) => { error!("Unity bridge read error: {}", error); return; }
                 }
             }
-
-            warn!("Bridge read loop ended, attempting reconnect");
-            client.clear_pending_requests();
-            *client.writer.lock().await = None;
-            if let Err(error) = client.connect().await {
-                error!("Reconnect failed: {}", error);
-            }
-        });
+        }
     }
 
+    async fn invalidate_connection(&self, epoch: u64) {
+        if self.close_published_writer_if_epoch(epoch).await {
+            self.reconnect_tx
+                .send_modify(|generation| *generation = generation.wrapping_add(1));
+        }
+    }
+
+    async fn close_published_writer(&self) {
+        if let Some(mut published) = self.writer.lock().await.take() {
+            if let Err(error) = published.writer.shutdown().await {
+                warn!(
+                    "Failed to gracefully shut down Unity bridge TCP writer: {}",
+                    error
+                );
+            }
+        }
+    }
+
+    async fn close_published_writer_if_epoch(&self, epoch: u64) -> bool {
+        let writer = {
+            let mut guard = self.writer.lock().await;
+            if guard.as_ref().map(|published| published.epoch) == Some(epoch) {
+                guard.take()
+            } else {
+                None
+            }
+        };
+        if let Some(mut published) = writer {
+            if let Err(error) = published.writer.shutdown().await {
+                warn!(
+                    "Failed to gracefully shut down Unity bridge TCP writer: {}",
+                    error
+                );
+            }
+            true
+        } else {
+            false
+        }
+    }
+
+    async fn is_epoch_published(&self, epoch: u64) -> bool {
+        self.writer
+            .lock()
+            .await
+            .as_ref()
+            .map(|published| published.epoch)
+            == Some(epoch)
+    }
+
+    fn is_shutdown(&self) -> bool {
+        self.is_shutdown.load(Ordering::Acquire)
+    }
+    async fn wait_or_shutdown(&self, duration: Duration) -> bool {
+        let mut shutdown = self.shutdown_tx.subscribe();
+        if *shutdown.borrow() {
+            return false;
+        }
+        tokio::select! { _ = tokio::time::sleep(duration) => true, _ = shutdown.changed() => false }
+    }
     fn clear_pending_requests(&self) {
         self.pending.retain(|_, _| false);
     }
@@ -157,36 +267,32 @@ impl BridgeClient {
         command: &str,
         params: serde_json::Value,
     ) -> Result<BridgeResponse, String> {
-        const MAX_RETRIES: u32 = 3;
-        let backoffs = [
+        const BACKOFFS: [Duration; 3] = [
             Duration::from_millis(200),
             Duration::from_millis(400),
             Duration::from_millis(800),
         ];
-
-        let mut last_error = String::new();
-
-        for attempt in 0..=MAX_RETRIES {
+        for (attempt, backoff) in BACKOFFS.iter().copied().enumerate() {
             match self.do_request(command, &params).await {
                 Ok(response) => return Ok(response),
-                Err(error) if attempt < MAX_RETRIES && is_transient_bridge_error(&error) => {
+                Err(error) if is_transient_bridge_error(&error) => {
                     warn!(
-                        "Transient bridge error on attempt {}/{}: {}. Retrying in {:?}",
+                        "Transient bridge error on attempt {}/{}: {}",
                         attempt + 1,
-                        MAX_RETRIES,
-                        error,
-                        backoffs[attempt as usize]
+                        BACKOFFS.len(),
+                        error
                     );
-                    // Clear the writer so ensure_connected triggers a fresh reconnect.
-                    *self.writer.lock().await = None;
-                    tokio::time::sleep(backoffs[attempt as usize]).await;
-                    last_error = error;
+                    if let Some(epoch) = connection_epoch_from_error(&error) {
+                        self.invalidate_connection(epoch).await;
+                    }
+                    if !self.wait_or_shutdown(backoff).await {
+                        return Err("Unity bridge client is shutting down".to_string());
+                    }
                 }
                 Err(error) => return Err(error),
             }
         }
-
-        Err(last_error)
+        self.do_request(command, &params).await
     }
 
     async fn do_request(
@@ -195,36 +301,33 @@ impl BridgeClient {
         params: &serde_json::Value,
     ) -> Result<BridgeResponse, String> {
         self.ensure_connected().await?;
-
         let id = Uuid::new_v4().to_string();
-        let request = BridgeRequest {
+        let payload = serde_json::to_vec(&BridgeRequest {
             id: id.clone(),
             command: command.to_string(),
             params: params.clone(),
-        };
-
-        let payload =
-            serde_json::to_vec(&request).map_err(|error| format!("Serialize error: {}", error))?;
-
+        })
+        .map_err(|error| format!("Serialize error: {}", error))?;
         let (sender, receiver) = oneshot::channel();
         self.pending.insert(id.clone(), sender);
-
-        {
-            let mut writer_guard = self.writer.lock().await;
-            let writer = match writer_guard.as_mut() {
-                Some(writer) => writer,
-                None => {
-                    self.pending.remove(&id);
-                    return Err("Not connected to Unity bridge".to_string());
+        let write_result = {
+            let mut guard = self.writer.lock().await;
+            match guard.as_mut() {
+                Some(published) => {
+                    let epoch = published.epoch;
+                    write_frame(&mut published.writer, &payload)
+                        .await
+                        .map_err(|error| {
+                            format!("TCP send error [connection epoch {}]: {}", epoch, error)
+                        })
                 }
-            };
-
-            if let Err(error) = write_frame(writer, &payload).await {
-                self.pending.remove(&id);
-                return Err(format!("TCP send error: {}", error));
+                None => Err("Not connected to Unity bridge".to_string()),
             }
+        };
+        if let Err(error) = write_result {
+            self.pending.remove(&id);
+            return Err(error);
         }
-
         match tokio::time::timeout(Duration::from_secs(30), receiver).await {
             Ok(Ok(response)) => Ok(response),
             Ok(Err(_)) => {
@@ -233,10 +336,7 @@ impl BridgeClient {
             }
             Err(_) => {
                 self.pending.remove(&id);
-                Err(format!(
-                    "Request '{}' timed out after 30 seconds. Unity may be waiting for input in a modal dialog or save-changes prompt; resolve any Unity popup and retry.",
-                    command
-                ))
+                Err(format!("Request '{}' timed out after 30 seconds. Unity may be waiting for input in a modal dialog or save-changes prompt; resolve any Unity popup and retry.", command))
             }
         }
     }
@@ -248,39 +348,46 @@ fn is_transient_bridge_error(error: &str) -> bool {
         || error.contains("Not connected")
 }
 
+fn connection_epoch_from_error(error: &str) -> Option<u64> {
+    const PREFIX: &str = "TCP send error [connection epoch ";
+    let epoch = error.strip_prefix(PREFIX)?.split_once(']')?.0;
+    epoch.parse().ok()
+}
 async fn read_frame(reader: &mut OwnedReadHalf) -> Result<Option<String>, String> {
     let mut header = [0u8; 4];
     match reader.read_exact(&mut header).await {
         Ok(_) => {}
-        Err(error) if error.kind() == std::io::ErrorKind::UnexpectedEof => return Ok(None),
-        Err(error) if error.kind() == std::io::ErrorKind::ConnectionReset => return Ok(None),
+        Err(error)
+            if matches!(
+                error.kind(),
+                std::io::ErrorKind::UnexpectedEof
+                    | std::io::ErrorKind::ConnectionReset
+                    | std::io::ErrorKind::ConnectionAborted
+            ) =>
+        {
+            return Ok(None)
+        }
         Err(error) => return Err(error.to_string()),
     }
-
     let length = u32::from_le_bytes(header) as usize;
     if length == 0 || length > MAX_FRAME_BYTES {
         return Err(format!("Invalid frame length: {}", length));
     }
-
     let mut payload = vec![0u8; length];
     reader
         .read_exact(&mut payload)
         .await
         .map_err(|error| error.to_string())?;
-
     String::from_utf8(payload)
         .map(Some)
         .map_err(|error| error.to_string())
 }
-
 async fn write_frame(writer: &mut OwnedWriteHalf, payload: &[u8]) -> Result<(), String> {
     if payload.is_empty() || payload.len() > MAX_FRAME_BYTES {
         return Err(format!("Invalid frame length: {}", payload.len()));
     }
-
-    let header = (payload.len() as u32).to_le_bytes();
     writer
-        .write_all(&header)
+        .write_all(&(payload.len() as u32).to_le_bytes())
         .await
         .map_err(|error| error.to_string())?;
     writer
@@ -288,4 +395,166 @@ async fn write_frame(writer: &mut OwnedWriteHalf, payload: &[u8]) -> Result<(), 
         .await
         .map_err(|error| error.to_string())?;
     writer.flush().await.map_err(|error| error.to_string())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    use tokio::net::TcpListener;
+
+    async fn read_request_id(stream: &mut TcpStream) -> String {
+        let mut header = [0; 4];
+        stream.read_exact(&mut header).await.unwrap();
+        let mut body = vec![0; u32::from_le_bytes(header) as usize];
+        stream.read_exact(&mut body).await.unwrap();
+        serde_json::from_slice::<serde_json::Value>(&body).unwrap()["id"]
+            .as_str()
+            .unwrap()
+            .to_string()
+    }
+    async fn write_response(stream: &mut TcpStream, id: String) {
+        let body =
+            serde_json::to_vec(&serde_json::json!({"id": id, "success": true, "result": {}}))
+                .unwrap();
+        stream
+            .write_all(&(body.len() as u32).to_le_bytes())
+            .await
+            .unwrap();
+        stream.write_all(&body).await.unwrap();
+        stream.flush().await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn shutdown_closes_peer_is_idempotent_and_cannot_publish_late_connection() {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let client = BridgeClient::new(listener.local_addr().unwrap().port());
+        client.start().await;
+        let (mut peer, _) = listener.accept().await.unwrap();
+        client.shutdown().await;
+        client.shutdown().await;
+        let mut byte = [0; 1];
+        assert_eq!(peer.read(&mut byte).await.unwrap(), 0);
+        assert!(client.lifecycle_task.lock().await.is_none());
+    }
+
+    #[tokio::test]
+    async fn shutdown_cancels_backoff_before_a_listener_can_accept() {
+        let reserved = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = reserved.local_addr().unwrap().port();
+        drop(reserved);
+        let client = BridgeClient::new(port);
+        client.start().await;
+        tokio::time::sleep(Duration::from_millis(25)).await;
+        client.shutdown().await;
+        let listener = TcpListener::bind(("127.0.0.1", port)).await.unwrap();
+        assert!(
+            tokio::time::timeout(Duration::from_millis(150), listener.accept())
+                .await
+                .is_err()
+        );
+    }
+
+    #[tokio::test]
+    async fn shutdown_wins_when_a_connection_is_waiting_to_publish() {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let client = BridgeClient::new(listener.local_addr().unwrap().port());
+        let publication = client.publication_lock.lock().await;
+        let connecting = {
+            let client = client.clone();
+            tokio::spawn(async move { client.try_connect_once().await })
+        };
+        let (mut peer, _) = listener.accept().await.unwrap();
+        let stopping = {
+            let client = client.clone();
+            tokio::spawn(async move { client.shutdown().await })
+        };
+        while !client.is_shutdown() {
+            tokio::task::yield_now().await;
+        }
+        drop(publication);
+        assert!(connecting.await.unwrap().is_err());
+        stopping.await.unwrap();
+        let mut byte = [0; 1];
+        assert_eq!(peer.read(&mut byte).await.unwrap(), 0);
+        assert!(client.writer.lock().await.is_none());
+    }
+
+    #[tokio::test]
+    async fn delayed_old_epoch_invalidation_keeps_new_writer() {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let client = BridgeClient::new(listener.local_addr().unwrap().port());
+        client.start().await;
+        let (first, _) = listener.accept().await.unwrap();
+        let old_epoch = tokio::time::timeout(Duration::from_secs(1), async {
+            loop {
+                if let Some(epoch) = client
+                    .writer
+                    .lock()
+                    .await
+                    .as_ref()
+                    .map(|published| published.epoch)
+                {
+                    return epoch;
+                }
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .unwrap();
+
+        client.invalidate_connection(old_epoch).await;
+        drop(first);
+        let (_second, _) = listener.accept().await.unwrap();
+        let new_epoch = tokio::time::timeout(Duration::from_secs(1), async {
+            loop {
+                if let Some(epoch) = client
+                    .writer
+                    .lock()
+                    .await
+                    .as_ref()
+                    .map(|published| published.epoch)
+                {
+                    if epoch != old_epoch {
+                        return epoch;
+                    }
+                }
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .unwrap();
+        assert_ne!(old_epoch, new_epoch);
+
+        client.invalidate_connection(old_epoch).await;
+        assert_eq!(
+            client.writer.lock().await.as_ref().unwrap().epoch,
+            new_epoch
+        );
+        client.shutdown().await;
+    }
+
+    #[tokio::test]
+    async fn request_reconnects_after_peer_drop() {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let client = BridgeClient::new(listener.local_addr().unwrap().port());
+        client.start().await;
+        let server = tokio::spawn(async move {
+            let (first, _) = listener.accept().await.unwrap();
+            drop(first);
+            let (mut second, _) = listener.accept().await.unwrap();
+            let request_id = read_request_id(&mut second).await;
+            write_response(&mut second, request_id).await;
+        });
+        let response = tokio::time::timeout(
+            Duration::from_secs(5),
+            client.request("test", serde_json::json!({})),
+        )
+        .await
+        .unwrap()
+        .unwrap();
+        assert!(response.success);
+        server.await.unwrap();
+        client.shutdown().await;
+    }
 }

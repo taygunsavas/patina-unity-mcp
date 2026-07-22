@@ -7,12 +7,12 @@
     "url": "https://github.com/taygunsavas/patina-unity-mcp",
     "source": "github"
   },
-  "version": "1.1.11",
+  "version": "1.1.12",
   "packages": [
     {
       "registryType": "npm",
       "identifier": "com.taygunsavas.patina-unity-mcp",
-      "version": "1.1.11",
+      "version": "1.1.12",
       "transport": {
         "type": "stdio"
       }
