@@ -73,7 +73,7 @@ function Wait-ForResponse {
 
 $resolvedBinary = (Resolve-Path $BinaryPath).Path
 $expectedCommandNames = Read-ExpectedToolNames -CatalogPath "rust-server/src/tools/catalog.rs"
-$expectedAdvertisedTools = @("patina_call", "patina_capabilities", "patina_health") | Sort-Object -Unique
+$expectedAdvertisedTools = @("patina_call", "patina_capabilities", "patina_health", "patina_sessions") | Sort-Object -Unique
 
 $process = New-Object System.Diagnostics.Process
 $process.StartInfo = New-Object System.Diagnostics.ProcessStartInfo
