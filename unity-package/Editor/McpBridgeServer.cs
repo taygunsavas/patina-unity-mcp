@@ -1,6 +1,7 @@
 using System;
-using System.Collections.Generic;
-using System.Net;
+using System.Collections.Concurrent;
+using System.Diagnostics;
+using System.IO;
 using System.Net.Sockets;
 using System.Text;
 using System.Threading;
@@ -22,7 +23,7 @@ namespace Patina.Editor
         StaleInProcess,
         PoisonedPort,
         PortOwnedByOtherProcess,
-        Error
+        Error,
     }
 
     public sealed class BridgeStatusSnapshot
@@ -38,7 +39,8 @@ namespace Patina.Editor
             bool pingSucceeded,
             string pingMessage,
             bool restartRequired,
-            string message)
+            string message
+        )
         {
             State = state;
             Port = port;
@@ -64,1261 +66,807 @@ namespace Patina.Editor
         public string PingMessage { get; }
         public bool RestartRequired { get; }
         public string Message { get; }
-
-        public bool IsBridgeUsable => State == BridgeRuntimeState.Running || State == BridgeRuntimeState.DetachedAlive;
+        public bool IsBridgeUsable => State == BridgeRuntimeState.Running;
     }
 
+    /// <summary>Unity is a client of the single local Patina broker. It never owns TCP port 9800.</summary>
     [InitializeOnLoad]
     public static class McpBridgeServer
     {
-        private const string BridgePingCommand = "__patina_bridge_ping";
-        private const int DefaultPort = 9800;
-        private const int MaxFrameBytes = 4 * 1024 * 1024;
-        private const int ProbeTimeoutMilliseconds = 250;
-        private const int StartupProbeGraceMilliseconds = 2000;
-        private const int ConsecutiveProbeFailuresForStale = 3;
-
-        private const int ListenerShutdownJoinMilliseconds = 1000;
-        private const int PortReleaseTimeoutMilliseconds = 1000;
-        private const int PortReleasePollMilliseconds = 50;
-
-        private static readonly object s_runtimeLock = new object();
-        private static BridgeRuntimeGeneration s_runtime;
+        private const int DefaultPort = 9800,
+            MaxFrameBytes = 4 * 1024 * 1024;
+        private const string ExplicitStopSessionStateKey = "Patina.SharedBroker.ExplicitStop";
+        private static readonly object s_lock = new object();
         private static readonly string s_sessionId = Guid.NewGuid().ToString("N");
-        private static readonly object s_snapshotLock = new object();
-        private static BridgeStatusSnapshot s_cachedSnapshot;
-        private static DateTime s_cachedSnapshotAtUtc = DateTime.MinValue;
+        private static CancellationTokenSource s_cancel;
+        private static Task s_connectTask;
+        private static TcpClient s_client;
+        private static volatile bool s_running;
+        private static volatile string s_lastError;
+        private static volatile string s_health = "starting";
+        private static volatile int s_agentClientCount;
+        private static volatile int s_unitySessionCount;
+        private static long s_currentGeneration;
+        private static DateTime s_nextBrokerLaunchUtc = DateTime.MinValue;
+        private static DateTime s_nextSupervisorCheckUtc = DateTime.MinValue;
+        private static bool s_autoStartEnabled = true;
+        private static int s_lifecycleHooksRegistered;
 
-        public static bool IsRunning
+        private sealed class SessionMetadata
         {
-            get
-            {
-                BridgeRuntimeGeneration runtime = GetCurrentRuntime();
-                return runtime != null && runtime.IsRunning;
-            }
+            public string Workspace;
+            public string ProjectName;
+            public string BrokerBinary;
+            public int UnityPid;
+            public string PackageVersion;
         }
-
-        private static volatile string _lastError;
-        public static string LastError => _lastError;
 
         public static int Port => DefaultPort;
-        public static int ConnectedClients
-        {
-            get
-            {
-                BridgeRuntimeGeneration runtime = GetCurrentRuntime();
-                return runtime == null ? 0 : runtime.ConnectedClientCount;
-            }
-        }
-
+        public static bool IsRunning => s_running;
+        public static int ConnectedClients => s_agentClientCount;
+        public static int ActiveUnitySessions => s_unitySessionCount;
+        public static string LocalSessionHealth => s_health;
+        public static string LastError => s_lastError;
         public static BridgeRuntimeState RuntimeState => GetStatusSnapshot().State;
-
-        private static readonly JsonSerializerSettings s_jsonSettings = new JsonSerializerSettings
-        {
-            NullValueHandling = NullValueHandling.Ignore
-        };
 
         static McpBridgeServer()
         {
+            RegisterLifecycleHooks();
+        }
+
+        [InitializeOnLoadMethod]
+        private static void InitializeOnLoad()
+        {
+            RegisterLifecycleHooks();
+        }
+
+        private static void RegisterLifecycleHooks()
+        {
+            if (Interlocked.Exchange(ref s_lifecycleHooksRegistered, 1) != 0)
+                return;
+            s_autoStartEnabled = !SessionState.GetBool(ExplicitStopSessionStateKey, false);
             CommandDispatcher.RegisterBuiltInHandlers();
-            AssemblyReloadEvents.beforeAssemblyReload += Stop;
-            EditorApplication.quitting += Stop;
-            EditorApplication.delayCall += () =>
-            {
-                if (!IsRunning)
-                    Start();
-            };
+            AssemblyReloadEvents.beforeAssemblyReload += StopForEditorShutdown;
+            EditorApplication.quitting += StopForEditorShutdown;
+            EditorApplication.delayCall += StartIfAutoStartEnabled;
+            EditorApplication.update += EnsureConnectionSupervisor;
+            UnityEngine.Debug.Log("[Patina] Shared broker lifecycle initialized.");
         }
 
         public static void Start()
         {
-            _lastError = null;
-            InvalidateStatusSnapshot();
-
-            int port = Port;
-            BridgeRuntimeGeneration runtime = GetCurrentRuntime();
-            if (runtime != null)
+            bool refreshRuntime;
+            lock (s_lock)
             {
-                BridgeStatusSnapshot snapshot = GetStatusSnapshot(true);
-                if (runtime.IsRunning && snapshot.IsBridgeUsable)
-                    return;
-
-                StopRuntime(runtime, logStopped: false);
-                if (!WaitForPortRelease(port, out string releaseMessage))
+                if (s_cancel != null && s_connectTask != null && !s_connectTask.IsCompleted)
                 {
-                    SetLastError($"Patina could not start tcp://127.0.0.1:{port}/ because the previous bridge runtime did not release the port. {releaseMessage}");
-                    return;
+                    if (!RequiresRuntimeRefreshLocked())
+                        return;
+                    refreshRuntime = true;
+                }
+                else
+                {
+                    refreshRuntime = false;
                 }
             }
-
-            if (TryStartOnPort(port, out Exception error))
-                return;
-
-            if (IsAddressAlreadyInUse(error))
+            if (refreshRuntime)
             {
-                Debug.LogWarning($"[Patina] TCP bridge port {port} is already in use. Trying to release the existing listener before retrying.");
-                PortReleaseResult releaseResult = TryReleasePortOwner(port);
-
-                Exception retryError = null;
-                if (releaseResult.Released && TryStartOnPort(port, out retryError))
-                    return;
-
-                if (releaseResult.DetachedAlive)
-                {
-                    _lastError = null;
-                    InvalidateStatusSnapshot();
-                    Debug.LogWarning("[Patina] " + releaseResult.Message);
-                    return;
-                }
-
-                SetLastError(BuildPortUnavailableMessage(port, releaseResult, retryError));
-                return;
+                UnityEngine.Debug.Log(
+                    "[Patina] Refreshing shared broker supervisor after a runtime launch error."
+                );
+                StopInternal(intentional: false);
             }
-
-            SetLastError($"Failed to start TCP bridge on port {port}: {error.Message}");
+            lock (s_lock)
+            {
+                DisposeCompletedConnectionLoopLocked();
+                s_autoStartEnabled = true;
+                SessionState.SetBool(ExplicitStopSessionStateKey, false);
+                s_lastError = null;
+                s_health = "starting";
+                s_cancel = new CancellationTokenSource();
+                CancellationToken startToken = s_cancel.Token;
+                SessionMetadata metadata = CaptureMetadata();
+                long generation = Interlocked.Increment(ref s_currentGeneration);
+                s_connectTask = RunConnectionSupervisorAsync(startToken, metadata, generation);
+                UnityEngine.Debug.Log(
+                    "[Patina] Starting shared broker supervisor for " + metadata.ProjectName + "."
+                );
+            }
         }
 
-        public static void Restart()
+        private static bool RequiresRuntimeRefreshLocked()
         {
-            int port = Port;
-            Stop();
-            if (!WaitForPortRelease(port, out string releaseMessage))
-            {
-                SetLastError($"Patina could not restart tcp://127.0.0.1:{port}/ because the previous bridge listener did not release the port. {releaseMessage}");
-                return;
-            }
+            return s_lastError?.StartsWith("Patina runtime is missing", StringComparison.Ordinal)
+                    == true
+                || s_lastError?.StartsWith(
+                    "Could not start Patina shared broker",
+                    StringComparison.Ordinal
+                ) == true
+                || s_lastError?.StartsWith(
+                    "Patina shared broker exited before accepting connections",
+                    StringComparison.Ordinal
+                ) == true;
+        }
 
+        private static void StartIfAutoStartEnabled()
+        {
+            if (!s_autoStartEnabled || SessionState.GetBool(ExplicitStopSessionStateKey, false))
+                return;
             Start();
-        }
-
-        private static void InvalidateStatusSnapshot()
-        {
-            lock (s_snapshotLock)
-            {
-                s_cachedSnapshot = null;
-                s_cachedSnapshotAtUtc = DateTime.MinValue;
-            }
-        }
-
-        public static BridgeStatusSnapshot GetStatusSnapshot(bool forceRefresh = false)
-        {
-            lock (s_snapshotLock)
-            {
-                if (!forceRefresh
-                    && s_cachedSnapshot != null
-                    && (DateTime.UtcNow - s_cachedSnapshotAtUtc).TotalMilliseconds < 500)
-                {
-                    return s_cachedSnapshot;
-                }
-
-                s_cachedSnapshot = BuildStatusSnapshot();
-                s_cachedSnapshotAtUtc = DateTime.UtcNow;
-                return s_cachedSnapshot;
-            }
-        }
-
-        private static BridgeStatusSnapshot BuildStatusSnapshot()
-        {
-            int port = Port;
-            BridgeRuntimeGeneration runtime = GetCurrentRuntime();
-            int trackedClients = runtime == null ? 0 : runtime.ConnectedClientCount;
-            bool managedRunning = runtime != null && runtime.IsRunning;
-            int currentPid = System.Diagnostics.Process.GetCurrentProcess().Id;
-            int? listenerPid = FindTcpListenerPid(port);
-            string ownerProcessName = listenerPid.HasValue ? GetProcessName(listenerPid.Value) : null;
-            BridgeProbeResult probe = BridgeProbeResult.NotAttempted();
-            BridgeRuntimeState state;
-            string message;
-            bool restartRequired = false;
-
-            if (managedRunning)
-            {
-                if (listenerPid.HasValue && listenerPid.Value == currentPid)
-                {
-                    probe = ProbeBridge(port);
-                    if (!runtime.IsStaleAfterProbe(probe.Success))
-                    {
-                        state = BridgeRuntimeState.Running;
-                        message = trackedClients > 0
-                            ? "Unity bridge is listening on local TCP and has an attached Patina client."
-                            : "Unity bridge is listening on local TCP and waiting for a Patina client connection.";
-                    }
-                    else
-                    {
-                        state = BridgeRuntimeState.StaleInProcess;
-                        restartRequired = true;
-                        message = "This Unity Editor owns the Patina bridge port and three consecutive protocol pings failed after startup. Restart can attempt an owned-runtime cleanup before rebinding.";
-                    }
-                }
-                else if (!listenerPid.HasValue)
-                {
-                    state = BridgeRuntimeState.Error;
-                    restartRequired = true;
-                    message = "Managed bridge state says it is running, but no listener is bound to the Patina bridge port. Restart the bridge to rebuild the listener generation.";
-                }
-                else if (string.IsNullOrWhiteSpace(ownerProcessName))
-                {
-                    state = BridgeRuntimeState.PoisonedPort;
-                    restartRequired = true;
-                    message = BuildPoisonedPortMessage(port, listenerPid.Value);
-                }
-                else
-                {
-                    state = BridgeRuntimeState.PortOwnedByOtherProcess;
-                    restartRequired = IsUnityProcess(ownerProcessName);
-                    message = IsUnityProcess(ownerProcessName)
-                        ? $"Managed bridge state says it is running, but the port is owned by another Unity Editor PID {listenerPid.Value}. Close that editor, then retry."
-                        : $"Managed bridge state says it is running, but the port is owned by PID {listenerPid.Value} ({DescribeProcess(ownerProcessName)}). Patina will not terminate unrelated processes automatically.";
-                }
-            }
-            else if (!listenerPid.HasValue)
-            {
-                state = BridgeRuntimeState.Stopped;
-                message = string.IsNullOrEmpty(_lastError)
-                    ? "Bridge server is stopped. Start it manually only when debugging transport issues."
-                    : _lastError;
-            }
-            else if (runtime != null && listenerPid.Value == currentPid)
-            {
-                state = BridgeRuntimeState.StaleInProcess;
-                restartRequired = true;
-                message = "The managed bridge runtime was stopped but its listener has not released the port. Patina retained the runtime handle so Restart can retry cleanup.";
-            }
-            else if (listenerPid.Value == currentPid)
-            {
-                probe = ProbeBridge(port);
-                if (probe.Success)
-                {
-                    state = BridgeRuntimeState.DetachedAlive;
-                    message = "A Patina bridge listener is alive inside this Unity Editor, but the current managed bridge instance does not own its listener handle. Restart Unity after the active host session if controls cannot stop it.";
-                }
-                else
-                {
-                    state = BridgeRuntimeState.StaleInProcess;
-                    restartRequired = true;
-                    message = "This Unity Editor owns the Patina bridge port, but the managed bridge state no longer owns the listener and protocol ping failed. Restart Unity to clear the stale in-process listener.";
-                }
-            }
-            else if (string.IsNullOrWhiteSpace(ownerProcessName))
-            {
-                state = BridgeRuntimeState.PoisonedPort;
-                restartRequired = true;
-                message = listenerPid.HasValue
-                    ? BuildPoisonedPortMessage(port, listenerPid.Value)
-                    : "Windows reports the Patina bridge port as occupied, but Patina could not resolve the owning PID.";
-            }
-            else
-            {
-                state = BridgeRuntimeState.PortOwnedByOtherProcess;
-                restartRequired = IsUnityProcess(ownerProcessName);
-                message = IsUnityProcess(ownerProcessName)
-                    ? $"The port is owned by another Unity Editor PID {listenerPid.Value}. Close that editor or change its Patina port, then retry."
-                    : $"The port is owned by PID {listenerPid.Value} ({DescribeProcess(ownerProcessName)}). Patina will not terminate unrelated processes automatically.";
-            }
-
-            if (state == BridgeRuntimeState.Stopped && !string.IsNullOrEmpty(_lastError))
-                state = BridgeRuntimeState.Error;
-
-            return new BridgeStatusSnapshot(
-                state,
-                port,
-                managedRunning,
-                trackedClients,
-                listenerPid,
-                ownerProcessName,
-                listenerPid.HasValue && listenerPid.Value == currentPid,
-                probe.Success,
-                probe.Message,
-                restartRequired,
-                message);
-        }
-
-        private static void SetLastError(string message)
-        {
-            _lastError = message;
-            InvalidateStatusSnapshot();
-            Debug.LogError("[Patina] " + message);
-        }
-
-        private static bool TryStartOnPort(int port, out Exception error)
-        {
-            error = null;
-            CancellationTokenSource cts = new CancellationTokenSource();
-            TcpListener listener = null;
-            BridgeRuntimeGeneration runtime = null;
-
-            try
-            {
-                listener = new TcpListener(IPAddress.Loopback, port);
-                listener.Server.NoDelay = true;
-                listener.Start();
-
-                runtime = new BridgeRuntimeGeneration(port, listener, cts);
-                Thread listenerThread = new Thread(() => ListenLoop(runtime));
-                listenerThread.IsBackground = true;
-                listenerThread.Name = "Patina-TcpBridge";
-                runtime.SetListenerThread(listenerThread);
-
-                SetCurrentRuntime(runtime);
-                runtime.MarkRunning();
-                InvalidateStatusSnapshot();
-                listenerThread.Start();
-
-                Debug.Log($"[Patina] Bridge server started on tcp://127.0.0.1:{port}/");
-                return true;
-            }
-            catch (Exception ex)
-            {
-                error = ex;
-                if (runtime != null)
-                {
-                    ClearCurrentRuntime(runtime);
-                    runtime.Shutdown(joinListenerThread: false);
-                }
-                else
-                {
-                    StopListener(listener);
-                    DisposeCancellationSource(cts);
-                }
-
-                InvalidateStatusSnapshot();
-                return false;
-            }
-        }
-
-        private static BridgeProbeResult ProbeBridge(int port)
-        {
-            try
-            {
-                using (TcpClient client = new TcpClient())
-                {
-                    IAsyncResult connect = client.BeginConnect(IPAddress.Loopback, port, null, null);
-                    if (!connect.AsyncWaitHandle.WaitOne(ProbeTimeoutMilliseconds))
-                        return BridgeProbeResult.Failed("Bridge ping connect timed out.");
-
-                    client.EndConnect(connect);
-                    client.NoDelay = true;
-                    client.ReceiveTimeout = ProbeTimeoutMilliseconds;
-                    client.SendTimeout = ProbeTimeoutMilliseconds;
-
-                    using (NetworkStream stream = client.GetStream())
-                    {
-                        BridgeRequest request = new BridgeRequest
-                        {
-                            Id = Guid.NewGuid().ToString("N"),
-                            Command = BridgePingCommand,
-                            Parameters = new JObject()
-                        };
-
-                        string requestJson = JsonConvert.SerializeObject(request, Formatting.None, s_jsonSettings);
-                        WriteFrame(stream, requestJson);
-                        string responseJson = ReadFrame(stream);
-                        BridgeResponse response = JsonConvert.DeserializeObject<BridgeResponse>(responseJson);
-                        if (response != null && response.Success)
-                            return BridgeProbeResult.Ok("Bridge ping succeeded.");
-
-                        string error = response?.Error?.Message ?? "Bridge ping returned no success response.";
-                        return BridgeProbeResult.Failed(error);
-                    }
-                }
-            }
-            catch (Exception ex)
-            {
-                return BridgeProbeResult.Failed(ex.Message);
-            }
-        }
-
-        private static void WriteFrame(NetworkStream stream, string payload)
-        {
-            byte[] body = Encoding.UTF8.GetBytes(payload);
-            if (body.Length <= 0 || body.Length > MaxFrameBytes)
-                throw new InvalidOperationException($"Invalid frame length: {body.Length}");
-
-            int len = body.Length;
-            byte[] header = new byte[4];
-            header[0] = (byte)(len & 0xFF);
-            header[1] = (byte)((len >> 8) & 0xFF);
-            header[2] = (byte)((len >> 16) & 0xFF);
-            header[3] = (byte)((len >> 24) & 0xFF);
-            stream.Write(header, 0, header.Length);
-            stream.Write(body, 0, body.Length);
-            stream.Flush();
-        }
-
-        private static string ReadFrame(NetworkStream stream)
-        {
-            byte[] header = ReadExactly(stream, 4);
-            int length = header[0] | (header[1] << 8) | (header[2] << 16) | (header[3] << 24);
-            if (length <= 0 || length > MaxFrameBytes)
-                throw new InvalidOperationException($"Invalid frame length: {length}");
-
-            byte[] payload = ReadExactly(stream, length);
-            return Encoding.UTF8.GetString(payload, 0, payload.Length);
-        }
-
-        private static byte[] ReadExactly(NetworkStream stream, int length)
-        {
-            byte[] buffer = new byte[length];
-            int offset = 0;
-            while (offset < length)
-            {
-                int read = stream.Read(buffer, offset, length - offset);
-                if (read == 0)
-                    throw new InvalidOperationException("Bridge ping connection closed.");
-
-                offset += read;
-            }
-
-            return buffer;
         }
 
         public static void Stop()
         {
-            BridgeRuntimeGeneration runtime = GetCurrentRuntime();
-            if (runtime != null)
-            {
-                StopRuntime(runtime, logStopped: true);
-                return;
-            }
-
-            BridgeStatusSnapshot snapshot = GetStatusSnapshot(true);
-            if (snapshot.State == BridgeRuntimeState.DetachedAlive)
-            {
-                SetLastError("Patina cannot stop the current bridge listener because it is detached from the managed listener handle. Restart Unity after the active host session to fully reset it.");
-                return;
-            }
-
-            if (snapshot.State == BridgeRuntimeState.StaleInProcess)
-            {
-                SetLastError("Patina cannot stop the stale in-process bridge listener because the managed listener handle is unavailable. Restart Unity to clear it.");
-            }
+            StopInternal(intentional: true);
         }
 
-        private static void StopRuntime(BridgeRuntimeGeneration runtime, bool logStopped)
+        private static void StopForEditorShutdown()
         {
-            if (runtime == null)
-                return;
-
-            runtime.Shutdown(joinListenerThread: true);
-            if (!WaitForPortRelease(runtime.Port, out string releaseMessage))
-            {
-                InvalidateStatusSnapshot();
-                SetLastError($"Patina stopped its managed bridge runtime, but tcp://127.0.0.1:{runtime.Port}/ did not release. The managed runtime handle is retained for another cleanup attempt. {releaseMessage}");
-                return;
-            }
-
-            ClearCurrentRuntime(runtime);
-            InvalidateStatusSnapshot();
-
-            if (logStopped)
-                Debug.Log("[Patina] Bridge server stopped.");
+            StopInternal(intentional: false);
         }
 
-        private static BridgeRuntimeGeneration GetCurrentRuntime()
+        private static void StopInternal(bool intentional)
         {
-            lock (s_runtimeLock)
+            Interlocked.Increment(ref s_currentGeneration);
+            CancellationTokenSource cancel;
+            TcpClient client;
+            lock (s_lock)
             {
-                return s_runtime;
-            }
-        }
-
-        private static void SetCurrentRuntime(BridgeRuntimeGeneration runtime)
-        {
-            lock (s_runtimeLock)
-            {
-                s_runtime = runtime;
-            }
-        }
-
-        private static void ClearCurrentRuntime(BridgeRuntimeGeneration runtime)
-        {
-            lock (s_runtimeLock)
-            {
-                if (ReferenceEquals(s_runtime, runtime))
-                    s_runtime = null;
-            }
-        }
-
-        private static bool WaitForPortRelease(int port, out string message)
-        {
-            int currentPid = System.Diagnostics.Process.GetCurrentProcess().Id;
-            DateTime deadline = DateTime.UtcNow.AddMilliseconds(PortReleaseTimeoutMilliseconds);
-            do
-            {
-                int? pid = FindTcpListenerPid(port);
-                if (!pid.HasValue)
+                cancel = s_cancel;
+                s_cancel = null;
+                s_connectTask = null;
+                client = s_client;
+                s_client = null;
+                s_running = false;
+                s_health = "stopped";
+                if (intentional)
                 {
-                    message = "The bridge port is released.";
-                    return true;
-                }
-
-                if (pid.Value != currentPid)
-                {
-                    string processName = GetProcessName(pid.Value);
-                    message = string.IsNullOrWhiteSpace(processName)
-                        ? BuildPoisonedPortMessage(port, pid.Value)
-                        : $"The port is now owned by PID {pid.Value} ({DescribeProcess(processName)}).";
-                    return false;
-                }
-
-                Thread.Sleep(PortReleasePollMilliseconds);
-            }
-            while (DateTime.UtcNow < deadline);
-
-            message = $"tcp://127.0.0.1:{port}/ is still owned by this Unity process after shutdown.";
-            return false;
-        }
-
-        private static void StopListener(TcpListener listener)
-        {
-            if (listener == null)
-                return;
-
-            Socket listenerSocket = null;
-            try
-            {
-                listenerSocket = listener.Server;
-            }
-            catch
-            {
-            }
-
-            try
-            {
-                listener.Stop();
-            }
-            catch
-            {
-            }
-
-            try
-            {
-                listenerSocket?.Close();
-            }
-            catch
-            {
-            }
-
-            try
-            {
-                listenerSocket?.Dispose();
-            }
-            catch
-            {
-            }
-        }
-
-        private static void CloseClient(TcpClient client)
-        {
-            if (client == null)
-                return;
-
-            try
-            {
-                client.Close();
-            }
-            catch
-            {
-            }
-        }
-
-        private static void DisposeCancellationSource(CancellationTokenSource cts)
-        {
-            if (cts == null)
-                return;
-
-            try
-            {
-                cts.Dispose();
-            }
-            catch
-            {
-            }
-        }
-
-        private static bool IsAddressAlreadyInUse(Exception error)
-        {
-            SocketException socketException = error as SocketException;
-            if (socketException != null)
-                return socketException.SocketErrorCode == SocketError.AddressAlreadyInUse;
-
-            return error != null
-                   && !string.IsNullOrEmpty(error.Message)
-                   && error.Message.IndexOf("address already in use", StringComparison.OrdinalIgnoreCase) >= 0;
-        }
-
-        private static PortReleaseResult TryReleasePortOwner(int port)
-        {
-            if (Environment.OSVersion.Platform != PlatformID.Win32NT)
-                return PortReleaseResult.Failed("Automatic listener cleanup is only supported on Windows.");
-
-            int? pid = FindTcpListenerPid(port);
-            if (!pid.HasValue)
-                return PortReleaseResult.Failed("Windows reports the port as occupied, but Patina could not resolve the owning PID.");
-
-            int currentPid = System.Diagnostics.Process.GetCurrentProcess().Id;
-            if (pid.Value == currentPid)
-            {
-                BridgeRuntimeGeneration runtime = GetCurrentRuntime();
-                if (runtime != null)
-                {
-                    StopRuntime(runtime, logStopped: false);
-                    if (WaitForPortRelease(port, out string releaseMessage))
-                        return PortReleaseResult.Success(pid.Value);
-
-                    return PortReleaseResult.Failed("The port is owned by the current Unity Editor process, and Patina's managed runtime cleanup did not release it. " + releaseMessage);
-                }
-
-                BridgeProbeResult probe = ProbeBridge(port);
-                if (probe.Success)
-                    return PortReleaseResult.Detached("A Patina bridge listener is already alive inside this Unity Editor. Start skipped rebinding and will report it as detached alive.");
-
-                return PortReleaseResult.Failed("The port is owned by the current Unity Editor process, but Patina could not ping a live bridge on it. Restart Unity to clear the stale in-process listener.");
-            }
-
-            if (pid.Value <= 4)
-                return PortReleaseResult.Failed($"The port is owned by protected Windows PID {pid.Value}; Patina will not terminate it automatically.");
-
-            string processName = GetProcessName(pid.Value);
-            if (string.IsNullOrWhiteSpace(processName))
-                return PortReleaseResult.Poisoned(BuildPoisonedPortMessage(port, pid.Value));
-
-            if (IsUnityProcess(processName))
-                return PortReleaseResult.Failed($"The port is owned by Unity PID {pid.Value}. Patina will not force-close another Unity Editor automatically; close that editor or change its Patina port, then retry.");
-
-            if (!IsPatinaBridgeProcess(processName))
-                return PortReleaseResult.Failed($"The port is owned by PID {pid.Value} ({DescribeProcess(processName)}), which does not look like a Patina Unity bridge process. Patina will not terminate unrelated processes automatically.");
-
-            ProcessResult killResult = RunProcess("taskkill.exe", "/PID " + pid.Value + " /F");
-            if (killResult.ExitCode != 0)
-                return PortReleaseResult.Failed($"Patina found PID {pid.Value} on the bridge port but taskkill failed: {killResult.Output}");
-
-            Thread.Sleep(500);
-            Debug.LogWarning($"[Patina] Terminated process {pid.Value} to release TCP bridge port {port}.");
-            return PortReleaseResult.Success(pid.Value);
-        }
-
-        private static string GetProcessName(int pid)
-        {
-            try
-            {
-                using (System.Diagnostics.Process process = System.Diagnostics.Process.GetProcessById(pid))
-                {
-                    return process.ProcessName;
+                    s_autoStartEnabled = false;
+                    SessionState.SetBool(ExplicitStopSessionStateKey, true);
                 }
             }
-            catch
-            {
-                return null;
-            }
-        }
-
-        private static bool IsUnityProcess(string processName)
-        {
-            if (string.IsNullOrWhiteSpace(processName))
-                return false;
-
-            return processName.Equals("Unity", StringComparison.OrdinalIgnoreCase)
-                   || processName.Equals("Unity.exe", StringComparison.OrdinalIgnoreCase);
-        }
-
-        private static bool IsPatinaBridgeProcess(string processName)
-        {
-            if (string.IsNullOrWhiteSpace(processName))
-                return false;
-
-            return processName.Equals("patina-server", StringComparison.OrdinalIgnoreCase)
-                   || processName.Equals("patina-server.exe", StringComparison.OrdinalIgnoreCase);
-        }
-
-        private static string DescribeProcess(string processName)
-        {
-            return string.IsNullOrWhiteSpace(processName) ? "unresolved process name" : processName;
-        }
-
-        private static string BuildPoisonedPortMessage(int port, int pid)
-        {
-            return $"Windows reports tcp://127.0.0.1:{port}/ as LISTENING under PID {pid}, but that PID is not visible as a running process. This is a poisoned or orphaned TCP listener outside Patina's safe user-mode cleanup path. Close MCP hosts using Patina and restart Windows to release the port; restarting Unity alone may not be enough.";
-        }
-
-        private static int? FindTcpListenerPid(int port)
-        {
-            ProcessResult result = RunProcess("netstat.exe", "-ano -p tcp");
-            if (result.ExitCode != 0)
-                return null;
-
-            string marker = ":" + port;
-            string[] lines = result.Output.Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries);
-            foreach (string line in lines)
-            {
-                string trimmed = line.Trim();
-                if (!trimmed.StartsWith("TCP", StringComparison.OrdinalIgnoreCase)
-                    || trimmed.IndexOf(marker, StringComparison.OrdinalIgnoreCase) < 0)
-                {
-                    continue;
-                }
-
-                string[] parts = trimmed.Split((char[])null, StringSplitOptions.RemoveEmptyEntries);
-                if (parts.Length < 5)
-                    continue;
-
-                string localAddress = parts[1];
-                string state = parts[3];
-                string pidText = parts[4];
-                if (!localAddress.Equals("127.0.0.1" + marker, StringComparison.OrdinalIgnoreCase)
-                    || !state.Equals("LISTENING", StringComparison.OrdinalIgnoreCase))
-                {
-                    continue;
-                }
-
-                if (int.TryParse(pidText, out int pid))
-                    return pid;
-            }
-
-            return null;
-        }
-
-        private static ProcessResult RunProcess(string fileName, string arguments)
-        {
             try
             {
-                System.Diagnostics.ProcessStartInfo startInfo = new System.Diagnostics.ProcessStartInfo
+                if (client != null && client.Connected)
+                    WriteFrame(
+                        client.GetStream(),
+                        JsonConvert.SerializeObject(
+                            new { type = "unregister", sessionId = s_sessionId }
+                        )
+                    );
+            }
+            catch { }
+            try
+            {
+                cancel?.Cancel();
+                client?.Close();
+            }
+            catch { }
+            finally
+            {
+                cancel?.Dispose();
+            }
+            UnityEngine.Debug.Log(
+                intentional
+                    ? "[Patina] Shared broker supervisor stopped by user."
+                    : "[Patina] Shared broker supervisor stopped for editor shutdown."
+            );
+        }
+
+        public static void Restart()
+        {
+            Stop();
+            Start();
+        }
+
+        private static void EnsureConnectionSupervisor()
+        {
+            if (!s_autoStartEnabled || EditorApplication.isCompiling)
+                return;
+            DateTime now = DateTime.UtcNow;
+            if (now < s_nextSupervisorCheckUtc)
+                return;
+            s_nextSupervisorCheckUtc = now.AddSeconds(2);
+            lock (s_lock)
+            {
+                if (s_cancel != null && s_connectTask != null && !s_connectTask.IsCompleted)
+                    return;
+            }
+            UnityEngine.Debug.Log("[Patina] Shared broker supervisor was inactive; restarting it.");
+            Start();
+        }
+
+        public static BridgeStatusSnapshot GetStatusSnapshot(bool forceRefresh = false)
+        {
+            bool connecting;
+            lock (s_lock)
+                connecting =
+                    s_cancel != null && s_connectTask != null && !s_connectTask.IsCompleted;
+            BridgeRuntimeState state =
+                s_running ? BridgeRuntimeState.Running
+                : !string.IsNullOrEmpty(s_lastError) ? BridgeRuntimeState.Error
+                : connecting ? BridgeRuntimeState.Starting
+                : BridgeRuntimeState.Stopped;
+            string message = s_running
+                ? "Connected to the shared Patina broker. Unity sessions and agents may share tcp://127.0.0.1:9800/."
+                : (
+                    s_lastError
+                    ?? (
+                        connecting
+                            ? "Connecting to the shared Patina broker."
+                            : "Patina broker client is stopped."
+                    )
+                );
+            return new BridgeStatusSnapshot(
+                state,
+                Port,
+                s_running,
+                ConnectedClients,
+                null,
+                "patina-server broker",
+                false,
+                s_running,
+                s_health,
+                false,
+                message
+            );
+        }
+
+        private static async Task ConnectLoopAsync(
+            CancellationToken token,
+            SessionMetadata metadata,
+            long generation
+        )
+        {
+            while (!token.IsCancellationRequested)
+            {
+                TcpClient client = null;
+                try
                 {
-                    FileName = fileName,
-                    Arguments = arguments,
-                    CreateNoWindow = true,
-                    UseShellExecute = false,
-                    RedirectStandardOutput = true,
-                    RedirectStandardError = true
-                };
-
-                using (System.Diagnostics.Process process = System.Diagnostics.Process.Start(startInfo))
-                {
-                    if (process == null)
-                        return new ProcessResult(-1, "Process did not start.");
-
-                    Task<string> outputTask = process.StandardOutput.ReadToEndAsync();
-                    Task<string> errorTask = process.StandardError.ReadToEndAsync();
-
-                    if (!process.WaitForExit(5000))
+                    client = new TcpClient();
+                    Task connect = client.ConnectAsync("127.0.0.1", Port);
+                    if (
+                        await Task.WhenAny(connect, Task.Delay(1000, token)).ConfigureAwait(false)
+                        != connect
+                    )
                     {
-                        try
-                        {
-                            process.Kill();
-                        }
-                        catch
-                        {
-                        }
-
-                        return new ProcessResult(-1, "Process timed out.");
+                        ObserveFault(connect);
+                        throw new TimeoutException("Broker connect timed out.");
                     }
+                    await connect.ConfigureAwait(false);
+                    token.ThrowIfCancellationRequested();
+                    if (!IsCurrentGeneration(generation))
+                        throw new OperationCanceledException(token);
+                    client.NoDelay = true;
+                    WriteFrame(
+                        client.GetStream(),
+                        JsonConvert.SerializeObject(
+                            new
+                            {
+                                role = "unity",
+                                sessionId = s_sessionId,
+                                workspace = metadata.Workspace,
+                                projectName = metadata.ProjectName,
+                                unityPid = metadata.UnityPid,
+                                packageVersion = metadata.PackageVersion,
+                            }
+                        )
+                    );
+                    lock (s_lock)
+                    {
+                        token.ThrowIfCancellationRequested();
+                        if (!IsCurrentGeneration(generation))
+                            throw new OperationCanceledException(token);
+                        s_client = client;
+                        s_running = true;
+                        s_lastError = null;
+                        s_health = "responsive";
+                        UnityEngine.Debug.Log(
+                            "[Patina] Connected to shared broker on port " + Port + "."
+                        );
+                    }
+                    await ReadRequestsAsync(client, token, generation, metadata)
+                        .ConfigureAwait(false);
+                }
+                catch (OperationCanceledException) { }
+                catch (Exception)
+                {
+                    if (!token.IsCancellationRequested && IsCurrentGeneration(generation))
+                    {
+                        s_health = "reconnecting";
+                        TryLaunchBroker(metadata, generation);
+                    }
+                }
+                finally
+                {
+                    lock (s_lock)
+                    {
+                        if (ReferenceEquals(s_client, client) && IsCurrentGeneration(generation))
+                        {
+                            s_client = null;
+                            s_running = false;
+                        }
+                    }
+                    try
+                    {
+                        client?.Close();
+                    }
+                    catch { }
+                }
+                try
+                {
+                    await Task.Delay(500, token).ConfigureAwait(false);
+                }
+                catch (OperationCanceledException) { }
+            }
+        }
 
-                    if (!Task.WaitAll(new Task[] { outputTask, errorTask }, 1000))
-                        return new ProcessResult(-1, "Process output timed out.");
-
-                    string output = outputTask.Result;
-                    string error = errorTask.Result;
-                    return new ProcessResult(process.ExitCode, (output + " " + error).Trim());
+        private static async Task RunConnectionSupervisorAsync(
+            CancellationToken token,
+            SessionMetadata metadata,
+            long generation
+        )
+        {
+            string completion = "completed";
+            try
+            {
+                await ConnectLoopAsync(token, metadata, generation).ConfigureAwait(false);
+                if (!token.IsCancellationRequested && IsCurrentGeneration(generation))
+                {
+                    s_lastError = "Patina broker supervisor completed unexpectedly.";
+                    s_health = "error";
+                    UnityEngine.Debug.LogError(
+                        "[Patina] Shared broker supervisor completed unexpectedly."
+                    );
                 }
             }
             catch (Exception ex)
             {
-                return new ProcessResult(-1, ex.Message);
-            }
-        }
-
-        private static string BuildPortUnavailableMessage(int port, PortReleaseResult releaseResult, Exception retryError)
-        {
-            string retryMessage = retryError == null ? string.Empty : " Retry failed: " + retryError.Message;
-            if (releaseResult.IsPoisonedPort)
-                return $"Patina could not bind tcp://127.0.0.1:{port}/. {releaseResult.Message}{retryMessage}";
-
-            return $"Patina could not bind tcp://127.0.0.1:{port}/ and could not automatically release the existing listener. {releaseResult.Message}{retryMessage} Close the process using the port or restart Unity, then retry.";
-        }
-
-        private sealed class BridgeRuntimeGeneration
-        {
-            private readonly object _clientsLock = new object();
-            private readonly HashSet<TcpClient> _clients = new HashSet<TcpClient>();
-            private readonly CancellationTokenSource _cts;
-            private readonly CancellationToken _token;
-            private Thread _listenerThread;
-            private int _ctsDisposed;
-            private int _isRunning;
-            private int _consecutiveProbeFailures;
-            private readonly DateTime _startedAtUtc = DateTime.UtcNow;
-
-            public BridgeRuntimeGeneration(int port, TcpListener listener, CancellationTokenSource cts)
-            {
-                Port = port;
-                Listener = listener;
-                _cts = cts;
-                _token = cts.Token;
-            }
-
-            public int Port { get; }
-            public TcpListener Listener { get; }
-            public CancellationToken Token => _token;
-            public bool IsRunning => Interlocked.CompareExchange(ref _isRunning, 0, 0) == 1;
-
-            public int ConnectedClientCount
-            {
-                get
+                completion = "faulted";
+                if (IsCurrentGeneration(generation))
                 {
-                    lock (_clientsLock)
-                    {
-                        return _clients.Count;
-                    }
+                    s_lastError = "Patina broker supervisor faulted: " + ex.Message;
+                    s_health = "error";
+                    UnityEngine.Debug.LogException(ex);
                 }
-            }
-
-            public void SetListenerThread(Thread listenerThread)
-            {
-                _listenerThread = listenerThread;
-            }
-
-            public void MarkRunning()
-            {
-                Interlocked.Exchange(ref _isRunning, 1);
-            }
-
-            public bool IsStaleAfterProbe(bool succeeded)
-            {
-                if (succeeded)
-                {
-                    Interlocked.Exchange(ref _consecutiveProbeFailures, 0);
-                    return false;
-                }
-
-                if ((DateTime.UtcNow - _startedAtUtc).TotalMilliseconds < StartupProbeGraceMilliseconds)
-                    return false;
-
-                return Interlocked.Increment(ref _consecutiveProbeFailures) >= ConsecutiveProbeFailuresForStale;
-            }
-
-            public void Shutdown(bool joinListenerThread)
-            {
-                Interlocked.Exchange(ref _isRunning, 0);
-                Cancel();
-                StopListener(Listener);
-                CloseTrackedClients();
-
-                if (joinListenerThread)
-                    JoinListenerThread();
-
-                CloseTrackedClients();
-                DisposeCtsOnce();
-            }
-
-            public void RegisterClient(TcpClient client)
-            {
-                lock (_clientsLock)
-                {
-                    _clients.Add(client);
-                }
-            }
-
-            public void UnregisterClient(TcpClient client)
-            {
-                lock (_clientsLock)
-                {
-                    _clients.Remove(client);
-                }
-            }
-
-            private void Cancel()
-            {
-                try
-                {
-                    _cts.Cancel();
-                }
-                catch
-                {
-                }
-            }
-
-            private void JoinListenerThread()
-            {
-                Thread listenerThread = _listenerThread;
-                if (listenerThread == null || listenerThread == Thread.CurrentThread || !listenerThread.IsAlive)
-                    return;
-
-                try
-                {
-                    listenerThread.Join(ListenerShutdownJoinMilliseconds);
-                }
-                catch
-                {
-                }
-            }
-
-            private void CloseTrackedClients()
-            {
-                TcpClient[] clients;
-                lock (_clientsLock)
-                {
-                    clients = new TcpClient[_clients.Count];
-                    _clients.CopyTo(clients);
-                    _clients.Clear();
-                }
-
-                foreach (TcpClient client in clients)
-                    CloseClient(client);
-            }
-
-            private void DisposeCtsOnce()
-            {
-                if (Interlocked.Exchange(ref _ctsDisposed, 1) == 1)
-                    return;
-
-                DisposeCancellationSource(_cts);
-            }
-        }
-
-        private sealed class PortReleaseResult
-        {
-            private PortReleaseResult(bool released, int? pid, string message, bool isPoisonedPort, bool detachedAlive)
-            {
-                Released = released;
-                Pid = pid;
-                Message = message;
-                IsPoisonedPort = isPoisonedPort;
-                DetachedAlive = detachedAlive;
-            }
-
-            public bool Released { get; }
-            public int? Pid { get; }
-            public string Message { get; }
-            public bool IsPoisonedPort { get; }
-            public bool DetachedAlive { get; }
-
-            public static PortReleaseResult Success(int pid)
-            {
-                return new PortReleaseResult(true, pid, "Released the existing bridge listener.", false, false);
-            }
-
-            public static PortReleaseResult Failed(string message)
-            {
-                return new PortReleaseResult(false, null, message, false, false);
-            }
-
-            public static PortReleaseResult Poisoned(string message)
-            {
-                return new PortReleaseResult(false, null, message, true, false);
-            }
-
-            public static PortReleaseResult Detached(string message)
-            {
-                return new PortReleaseResult(false, null, message, false, true);
-            }
-        }
-
-        private readonly struct BridgeProbeResult
-        {
-            private BridgeProbeResult(bool success, string message)
-            {
-                Success = success;
-                Message = message;
-            }
-
-            public bool Success { get; }
-            public string Message { get; }
-
-            public static BridgeProbeResult Ok(string message)
-            {
-                return new BridgeProbeResult(true, message);
-            }
-
-            public static BridgeProbeResult Failed(string message)
-            {
-                return new BridgeProbeResult(false, message);
-            }
-
-            public static BridgeProbeResult NotAttempted()
-            {
-                return new BridgeProbeResult(false, string.Empty);
-            }
-        }
-
-        private readonly struct ProcessResult
-        {
-            public ProcessResult(int exitCode, string output)
-            {
-                ExitCode = exitCode;
-                Output = output;
-            }
-
-            public int ExitCode { get; }
-            public string Output { get; }
-        }
-
-        private static void ListenLoop(BridgeRuntimeGeneration runtime)
-        {
-            CancellationToken token = runtime.Token;
-            bool unexpectedExit = false;
-            try
-            {
-                while (!token.IsCancellationRequested)
-                {
-                    TcpClient client;
-                    try
-                    {
-                        client = runtime.Listener.AcceptTcpClient();
-                    }
-                    catch (SocketException ex)
-                    {
-                        if (!token.IsCancellationRequested)
-                        {
-                            unexpectedExit = true;
-                            SetLastError(ex.Message);
-                        }
-
-                        break;
-                    }
-                    catch (ObjectDisposedException ex)
-                    {
-                        if (!token.IsCancellationRequested)
-                        {
-                            unexpectedExit = true;
-                            SetLastError(ex.Message);
-                        }
-
-                        break;
-                    }
-
-                    runtime.RegisterClient(client);
-                    try
-                    {
-                        client.NoDelay = true;
-                        Task.Run(() => HandleClientAsync(runtime, client));
-                    }
-                    catch
-                    {
-                        runtime.UnregisterClient(client);
-                        CloseClient(client);
-
-                        throw;
-                    }
-                }
-            }
-            catch (Exception ex)
-            {
-                if (!token.IsCancellationRequested)
-                {
-                    unexpectedExit = true;
-                    SetLastError(ex.Message);
-                }
+                throw;
             }
             finally
             {
-                if (!token.IsCancellationRequested || unexpectedExit)
+                if (IsCurrentGeneration(generation))
                 {
-                    CleanupRuntimeAfterListenerExit(runtime);
+                    if (token.IsCancellationRequested)
+                        completion = "canceled";
+                    UnityEngine.Debug.Log(
+                        "[Patina] Shared broker supervisor "
+                            + completion
+                            + " for "
+                            + metadata.ProjectName
+                            + "."
+                    );
                 }
             }
         }
 
-        private static void CleanupRuntimeAfterListenerExit(BridgeRuntimeGeneration runtime)
+        private static void DisposeCompletedConnectionLoopLocked()
         {
-            runtime.Shutdown(joinListenerThread: false);
-            if (!WaitForPortRelease(runtime.Port, out string releaseMessage))
-            {
-                InvalidateStatusSnapshot();
-                SetLastError($"Patina listener thread exited, but tcp://127.0.0.1:{runtime.Port}/ did not release. The managed runtime handle is retained for another cleanup attempt. {releaseMessage}");
+            if (s_connectTask == null || !s_connectTask.IsCompleted)
                 return;
-            }
-
-            ClearCurrentRuntime(runtime);
-            InvalidateStatusSnapshot();
+            if (s_connectTask.IsFaulted)
+                s_lastError =
+                    "Patina broker connection loop stopped: "
+                    + s_connectTask.Exception?.GetBaseException().Message;
+            s_connectTask = null;
+            s_cancel?.Dispose();
+            s_cancel = null;
         }
 
-        private static async Task HandleClientAsync(BridgeRuntimeGeneration runtime, TcpClient client)
+        private static bool IsCurrentGeneration(long generation) =>
+            Interlocked.Read(ref s_currentGeneration) == generation;
+
+        private static async Task ReadRequestsAsync(
+            TcpClient client,
+            CancellationToken token,
+            long generation,
+            SessionMetadata metadata
+        )
         {
-            CancellationToken token = runtime.Token;
-            // NOTE: CancellationToken is not propagated to ReadAsync/WriteAsync calls.
-            // The socket is closed on Stop() which unblocks pending reads.
-            try
+            NetworkStream stream = client.GetStream();
+            using (
+                var connectionCancellation = CancellationTokenSource.CreateLinkedTokenSource(token)
+            )
             {
-                using (client)
-                using (NetworkStream stream = client.GetStream())
+                CancellationToken connectionToken = connectionCancellation.Token;
+                // These are disposed only after every dispatch has completed. A timed-out
+                // drain leaves ownership with its completion continuation to avoid races.
+                var dispatchSlots = new SemaphoreSlim(4, 4);
+                var writeGate = new SemaphoreSlim(1, 1);
+                var inFlight = new ConcurrentBag<Task>();
+                try
                 {
-                    while (!token.IsCancellationRequested && client.Connected)
+                    while (!connectionToken.IsCancellationRequested && client.Connected)
                     {
                         string json = await ReadFrameAsync(stream).ConfigureAwait(false);
                         if (json == null)
-                            break;
-
-                        BridgeResponse response;
+                            return;
+                        JObject envelope = JsonConvert.DeserializeObject<JObject>(json);
+                        BridgeRequest request = envelope?["request"]?.ToObject<BridgeRequest>();
+                        if (request == null)
+                            continue;
+                        if (request.Command == "__patina_bridge_ping")
+                        {
+                            await WriteResponseAsync(
+                                    client,
+                                    stream,
+                                    writeGate,
+                                    BridgeResponse.Ok(
+                                        request.Id,
+                                        new
+                                        {
+                                            bridge = "patina-unity",
+                                            sessionId = s_sessionId,
+                                            unityProcessId = metadata.UnityPid,
+                                            packageVersion = metadata.PackageVersion,
+                                            managedRunning = s_running,
+                                            trackedClientCount = s_agentClientCount,
+                                            activeUnitySessionCount = s_unitySessionCount,
+                                            port = Port,
+                                            health = s_health,
+                                        }
+                                    )
+                                )
+                                .ConfigureAwait(false);
+                            continue;
+                        }
+                        if (request.Command == "__patina_broker_heartbeat")
+                        {
+                            s_agentClientCount =
+                                request.Parameters?["agentClientCount"]?.Value<int>()
+                                ?? s_agentClientCount;
+                            s_unitySessionCount =
+                                request.Parameters?["unitySessionCount"]?.Value<int>()
+                                ?? s_unitySessionCount;
+                            s_health = IsEditorLikelyBlocked() ? "blocked" : "responsive";
+                            await WriteResponseAsync(
+                                    client,
+                                    stream,
+                                    writeGate,
+                                    BridgeResponse.Ok(
+                                        request.Id,
+                                        new
+                                        {
+                                            status = IsEditorLikelyBlocked()
+                                                ? "blocked"
+                                                : "responsive",
+                                            mainThreadUpdateAgeSeconds = MainThreadQueue
+                                                .TimeSinceLastUpdate
+                                                .TotalSeconds,
+                                        }
+                                    )
+                                )
+                                .ConfigureAwait(false);
+                            continue;
+                        }
+                        await dispatchSlots.WaitAsync(connectionToken).ConfigureAwait(false);
+                        Task dispatchTask = Task.Run(async () =>
+                        {
+                            try
+                            {
+                                BridgeResponse response =
+                                    IsEditorLikelyBlocked() && request.Command != "get_editor_state"
+                                        ? BridgeResponse.Fail(
+                                            request.Id,
+                                            "Unity editor is blocked by a modal dialog or blocking operation.",
+                                            "EDITOR_BLOCKED"
+                                        )
+                                        : await CommandDispatcher
+                                            .Dispatch(request, connectionToken)
+                                            .ConfigureAwait(false);
+                                if (!connectionToken.IsCancellationRequested)
+                                    await WriteResponseAsync(client, stream, writeGate, response)
+                                        .ConfigureAwait(false);
+                            }
+                            catch (OperationCanceledException) { }
+                            catch (Exception ex)
+                            {
+                                if (IsCurrentGeneration(generation))
+                                    RecordTransientFailure(ex.Message);
+                            }
+                            finally
+                            {
+                                dispatchSlots.Release();
+                            }
+                        });
+                        inFlight.Add(dispatchTask);
+                    }
+                }
+                finally
+                {
+                    connectionCancellation.Cancel();
+                    Task all = Task.WhenAll(inFlight.ToArray());
+                    if (await Task.WhenAny(all, Task.Delay(1000)).ConfigureAwait(false) == all)
+                    {
                         try
                         {
-                            BridgeRequest request = JsonConvert.DeserializeObject<BridgeRequest>(json);
-                            if (request != null && request.Command == BridgePingCommand)
-                            {
-                                response = BridgeResponse.Ok(request.Id, CreateBridgePingResult());
-                            }
-                            else if (request == null || string.IsNullOrEmpty(request.Command) || !CommandDispatcher.HasHandler(request.Command))
-                            {
-                                response = await CommandDispatcher.Dispatch(request).ConfigureAwait(false);
-                            }
-                            else if (IsEditorLikelyBlocked())
-                            {
-                                response = request.Command == "get_editor_state"
-                                    ? BridgeResponse.Ok(request.Id, CreateBlockedEditorState())
-                                    : CreateEditorBlockedResponse(request.Id);
-                            }
-                            else
-                            {
-                                response = await CommandDispatcher.Dispatch(request).ConfigureAwait(false);
-                            }
+                            await all.ConfigureAwait(false);
                         }
                         catch (Exception ex)
                         {
-                            response = BridgeResponse.Fail(null, $"Invalid request: {ex.Message}");
+                            if (IsCurrentGeneration(generation))
+                                RecordTransientFailure(ex.Message);
                         }
-
-                        string responseJson = JsonConvert.SerializeObject(
-                            response,
-                            Formatting.None,
-                            s_jsonSettings);
-
-                        await WriteFrameAsync(stream, responseJson).ConfigureAwait(false);
+                        dispatchSlots.Dispose();
+                        writeGate.Dispose();
+                    }
+                    else
+                    {
+                        _ = all.ContinueWith(
+                            task =>
+                            {
+                                if (task.IsFaulted)
+                                    if (IsCurrentGeneration(generation))
+                                        RecordTransientFailure(
+                                            task.Exception?.GetBaseException().Message
+                                        );
+                                dispatchSlots.Dispose();
+                                writeGate.Dispose();
+                            },
+                            TaskScheduler.Default
+                        );
                     }
                 }
             }
-            catch (Exception ex)
+        }
+
+        private static async Task WriteResponseAsync(
+            TcpClient client,
+            NetworkStream stream,
+            SemaphoreSlim writeGate,
+            BridgeResponse response
+        )
+        {
+            await writeGate.WaitAsync().ConfigureAwait(false);
+            try
             {
-                if (!IsExpectedClientClose(ex, runtime))
+                lock (s_lock)
                 {
-                    _lastError = ex.Message;
-                    Debug.LogError($"[Patina] TCP client error: {ex.Message}");
+                    if (s_client == client)
+                        WriteFrame(stream, JsonConvert.SerializeObject(response, Formatting.None));
                 }
             }
             finally
             {
-                runtime.UnregisterClient(client);
+                writeGate.Release();
             }
         }
 
-        private static JObject CreateBridgePingResult()
+        private static void RecordTransientFailure(string message)
         {
-            return new JObject
+            s_health = "reconnecting";
+            UnityEngine.Debug.LogWarning(
+                "[Patina] Shared broker connection will retry: " + message
+            );
+        }
+
+        private static void TryLaunchBroker(SessionMetadata metadata, long generation)
+        {
+            DateTime now = DateTime.UtcNow;
+            lock (s_lock)
             {
-                ["bridge"] = "patina-unity",
-                ["sessionId"] = s_sessionId,
-                ["unityProcessId"] = System.Diagnostics.Process.GetCurrentProcess().Id,
-                ["packageVersion"] = GetPackageVersion(),
-                ["managedRunning"] = IsRunning,
-                ["trackedClientCount"] = ConnectedClients,
-                ["port"] = Port
+                if (now < s_nextBrokerLaunchUtc)
+                    return;
+                s_nextBrokerLaunchUtc = now.AddSeconds(2);
+            }
+            // ProcessManager reads Unity EditorPrefs, so the active runtime must be
+            // resolved on Start's main-thread path and never from this supervisor.
+            string binary = metadata.BrokerBinary;
+            if (string.IsNullOrEmpty(binary))
+            {
+                s_lastError = "Patina runtime is missing; broker cannot be started.";
+                s_health = "error";
+                return;
+            }
+            try
+            {
+                UnityEngine.Debug.Log("[Patina] Launching shared broker from " + binary + ".");
+                Process process = Process.Start(
+                    new ProcessStartInfo
+                    {
+                        FileName = binary,
+                        Arguments = "--broker --port " + Port,
+                        UseShellExecute = false,
+                        CreateNoWindow = true,
+                        WorkingDirectory = Path.GetDirectoryName(binary),
+                    }
+                );
+                if (process == null)
+                {
+                    s_lastError = "Could not start Patina shared broker.";
+                    s_health = "error";
+                }
+                else
+                {
+                    UnityEngine.Debug.Log(
+                        "[Patina] Shared broker process started (PID " + process.Id + ")."
+                    );
+                    ObserveBrokerExit(process, generation);
+                }
+            }
+            catch (Exception ex)
+            {
+                s_lastError = "Could not start Patina shared broker: " + ex.Message;
+                s_health = "error";
+            }
+        }
+
+        private static void ObserveBrokerExit(Process process, long generation)
+        {
+            process.Exited += (_, __) =>
+            {
+                int exitCode;
+                try
+                {
+                    exitCode = process.ExitCode;
+                }
+                catch
+                {
+                    exitCode = -1;
+                }
+                finally
+                {
+                    process.Dispose();
+                }
+                if (exitCode != 0)
+                    _ = Task.Run(() => RecordBrokerExitIfUnavailableAsync(exitCode, generation));
+            };
+            process.EnableRaisingEvents = true;
+        }
+
+        private static async Task RecordBrokerExitIfUnavailableAsync(int exitCode, long generation)
+        {
+            await Task.Delay(100).ConfigureAwait(false);
+            if (
+                !IsCurrentGeneration(generation)
+                || s_running
+                || await CanConnectToBrokerAsync().ConfigureAwait(false)
+            )
+                return;
+            s_lastError =
+                "Patina shared broker exited before accepting connections (exit code "
+                + exitCode
+                + ").";
+            s_health = "error";
+        }
+
+        private static async Task<bool> CanConnectToBrokerAsync()
+        {
+            try
+            {
+                using (var client = new TcpClient())
+                {
+                    Task connect = client.ConnectAsync("127.0.0.1", Port);
+                    if (
+                        await Task.WhenAny(connect, Task.Delay(250)).ConfigureAwait(false)
+                        != connect
+                    )
+                    {
+                        ObserveFault(connect);
+                        return false;
+                    }
+                    await connect.ConfigureAwait(false);
+                    return client.Connected;
+                }
+            }
+            catch (SocketException)
+            {
+                return false;
+            }
+            catch (ObjectDisposedException)
+            {
+                return false;
+            }
+            catch (InvalidOperationException)
+            {
+                return false;
+            }
+        }
+
+        private static void ObserveFault(Task task)
+        {
+            _ = task.ContinueWith(
+                completed => _ = completed.Exception,
+                CancellationToken.None,
+                TaskContinuationOptions.OnlyOnFaulted
+                    | TaskContinuationOptions.ExecuteSynchronously,
+                TaskScheduler.Default
+            );
+        }
+
+        private static SessionMetadata CaptureMetadata()
+        {
+            string assets = Application.dataPath;
+            string workspace = CanonicalWorkspace(assets);
+            return new SessionMetadata
+            {
+                Workspace = workspace,
+                ProjectName = ProjectNameFromWorkspace(workspace),
+                BrokerBinary = ProcessManager.FindServerBinary(),
+                UnityPid = Process.GetCurrentProcess().Id,
+                PackageVersion =
+                    UnityEditor
+                        .PackageManager.PackageInfo.FindForAssembly(
+                            typeof(McpBridgeServer).Assembly
+                        )
+                        ?.version ?? "unknown",
             };
         }
 
-        private static string GetPackageVersion()
+        private static string CanonicalWorkspace(string assetsPath)
         {
-            return UnityEditor.PackageManager.PackageInfo.FindForAssembly(typeof(McpBridgeServer).Assembly)?.version ?? "unknown";
-        }
-
-        private static bool IsExpectedClientClose(Exception ex, BridgeRuntimeGeneration runtime)
-        {
-            if (ex is ObjectDisposedException)
-                return true;
-
-            SocketException socketException = ex as SocketException;
-            if (socketException != null && IsNormalClientDisconnect(socketException.SocketErrorCode))
-                return true;
-
-            System.IO.IOException ioException = ex as System.IO.IOException;
-            SocketException innerSocketException = ioException?.InnerException as SocketException;
-            if (innerSocketException != null && IsNormalClientDisconnect(innerSocketException.SocketErrorCode))
-                return true;
-
-            return runtime.Token.IsCancellationRequested
-                   && (ex is SocketException || ex is InvalidOperationException || ex is System.IO.IOException);
-        }
-
-        private static bool IsNormalClientDisconnect(SocketError error)
-        {
-            return error == SocketError.ConnectionAborted
-                   || error == SocketError.ConnectionReset
-                   || error == SocketError.Shutdown
-                   || error == SocketError.NotConnected;
-        }
-
-        private static bool IsEditorLikelyBlocked()
-        {
-            return MainThreadQueue.TimeSinceLastUpdate.TotalSeconds >= MainThreadQueue.BlockedThresholdSeconds;
-        }
-
-        private static BridgeResponse CreateEditorBlockedResponse(string id)
-        {
-            TimeSpan age = MainThreadQueue.TimeSinceLastUpdate;
-            int pendingCount = MainThreadQueue.PendingCount;
-            string message =
-                $"Unity has not processed editor updates for {age.TotalSeconds:F1}s, so Patina cannot safely service queued editor commands. " +
-                "Unity may be waiting for input in a modal dialog, such as a save-changes prompt. " +
-                $"Resolve the Unity popup or blocking operation, then retry. Pending Patina main-thread actions: {pendingCount}.";
-            return BridgeResponse.Fail(id, message, "EDITOR_BLOCKED");
-        }
-
-        private static JObject CreateBlockedEditorState()
-        {
-            TimeSpan age = MainThreadQueue.TimeSinceLastUpdate;
-            return new JObject
+            try
             {
-                ["isServiceable"] = false,
-                ["blockedByModalDialogLikely"] = true,
-                ["mainThreadUpdateAgeSeconds"] = age.TotalSeconds,
-                ["mainThreadQueuePendingCount"] = MainThreadQueue.PendingCount,
-                ["status"] = "blocked",
-                ["message"] = "Unity has stopped processing editor updates. It may be waiting for input in a modal dialog, such as a save-changes prompt. Resolve the Unity popup, then retry Patina commands."
-            };
+                return Path.GetFullPath(Path.Combine(assetsPath, ".."))
+                    .TrimEnd(Path.DirectorySeparatorChar)
+                    .Replace('\\', '/');
+            }
+            catch
+            {
+                return assetsPath.Replace('\\', '/');
+            }
+        }
+
+        private static string ProjectNameFromWorkspace(string workspace)
+        {
+            try
+            {
+                string name = new DirectoryInfo(workspace).Name;
+                return string.IsNullOrEmpty(name) ? Application.productName : name;
+            }
+            catch
+            {
+                return Application.productName;
+            }
+        }
+
+        private static bool IsEditorLikelyBlocked() =>
+            MainThreadQueue.TimeSinceLastUpdate.TotalSeconds
+            >= MainThreadQueue.BlockedThresholdSeconds;
+
+        private static void WriteFrame(NetworkStream stream, string text)
+        {
+            byte[] b = Encoding.UTF8.GetBytes(text);
+            if (b.Length == 0 || b.Length > MaxFrameBytes)
+                throw new InvalidOperationException("Invalid frame length.");
+            byte[] h = BitConverter.GetBytes(b.Length);
+            stream.Write(h, 0, h.Length);
+            stream.Write(b, 0, b.Length);
+            stream.Flush();
         }
 
         private static async Task<string> ReadFrameAsync(NetworkStream stream)
         {
-            byte[] header = await ReadExactlyAsync(stream, 4).ConfigureAwait(false);
-            if (header == null)
+            byte[] h = await ReadExactlyAsync(stream, 4).ConfigureAwait(false);
+            if (h == null)
                 return null;
-
-            int length = header[0] | (header[1] << 8) | (header[2] << 16) | (header[3] << 24);
+            int length = BitConverter.ToInt32(h, 0);
             if (length <= 0 || length > MaxFrameBytes)
-                throw new InvalidOperationException($"Invalid frame length: {length}");
-
-            byte[] payload = await ReadExactlyAsync(stream, length).ConfigureAwait(false);
-            if (payload == null)
-                return null;
-
-            return Encoding.UTF8.GetString(payload, 0, payload.Length);
-        }
-
-        private static async Task WriteFrameAsync(NetworkStream stream, string payload)
-        {
-            byte[] body = Encoding.UTF8.GetBytes(payload);
-            int len = body.Length;
-            byte[] header = new byte[4];
-            header[0] = (byte)(len & 0xFF);
-            header[1] = (byte)((len >> 8) & 0xFF);
-            header[2] = (byte)((len >> 16) & 0xFF);
-            header[3] = (byte)((len >> 24) & 0xFF);
-            await stream.WriteAsync(header, 0, header.Length).ConfigureAwait(false);
-            await stream.WriteAsync(body, 0, body.Length).ConfigureAwait(false);
-            await stream.FlushAsync().ConfigureAwait(false);
+                throw new InvalidOperationException("Invalid broker frame length: " + length);
+            byte[] body = await ReadExactlyAsync(stream, length).ConfigureAwait(false);
+            return body == null ? null : Encoding.UTF8.GetString(body);
         }
 
         private static async Task<byte[]> ReadExactlyAsync(NetworkStream stream, int length)
         {
-            byte[] buffer = new byte[length];
-            int offset = 0;
-
-            while (offset < length)
+            byte[] b = new byte[length];
+            int o = 0;
+            while (o < length)
             {
-                int read = await stream.ReadAsync(buffer, offset, length - offset).ConfigureAwait(false);
-                if (read == 0)
+                int r = await stream.ReadAsync(b, o, length - o).ConfigureAwait(false);
+                if (r == 0)
                     return null;
-                offset += read;
+                o += r;
             }
-
-            return buffer;
+            return b;
         }
     }
 }

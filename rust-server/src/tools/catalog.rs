@@ -91,10 +91,10 @@ pub fn query(
     let normalized_search = search.map(|value| value.to_lowercase());
     let commands = COMMANDS
         .iter()
-        .filter(|spec| command.map_or(true, |name| spec.name == name))
-        .filter(|spec| category.map_or(true, |value| spec.category == value))
+        .filter(|spec| command.is_none_or(|name| spec.name == name))
+        .filter(|spec| category.is_none_or(|value| spec.category == value))
         .filter(|spec| {
-            normalized_search.as_ref().map_or(true, |needle| {
+            normalized_search.as_ref().is_none_or(|needle| {
                 spec.name.contains(needle)
                     || spec.category.contains(needle)
                     || spec.description.to_lowercase().contains(needle)

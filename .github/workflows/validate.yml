@@ -7,6 +7,23 @@ on:
       - main
 
 jobs:
+  csharp-format:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: '8.0.x'
+      - run: dotnet tool restore
+      - run: dotnet restore tools/Patina.CSharpStyleCheck.Tests/Patina.CSharpStyleCheck.Tests.csproj
+      - run: dotnet test tools/Patina.CSharpStyleCheck.Tests/Patina.CSharpStyleCheck.Tests.csproj --configuration Release --no-restore
+      - shell: pwsh
+        run: ./scripts/check-csharp-format.ps1 -BaseRef "${{ github.event.pull_request.base.sha || github.event.before }}"
+      - shell: pwsh
+        run: ./scripts/check-csharp-style.ps1 -BaseRef "${{ github.event.pull_request.base.sha || github.event.before }}"
+
   lint:
     runs-on: ubuntu-latest
     steps:
@@ -76,6 +93,10 @@ jobs:
       - name: Cargo test
         working-directory: rust-server
         run: cargo test
+
+      - name: Cargo clippy
+        working-directory: rust-server
+        run: cargo clippy --all-targets --all-features -- -D warnings
 
       - name: Cargo check (release)
         working-directory: rust-server

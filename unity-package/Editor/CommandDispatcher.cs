@@ -1,4 +1,5 @@
 using System.Collections.Concurrent;
+using System.Threading;
 using System.Threading.Tasks;
 using Patina.Editor.Commands;
 using UnityEngine;
@@ -7,19 +8,28 @@ namespace Patina.Editor
 {
     public static class CommandDispatcher
     {
-        private static readonly ConcurrentDictionary<string, ICommandHandler> _handlers = new ConcurrentDictionary<string, ICommandHandler>();
+        private static readonly ConcurrentDictionary<string, ICommandHandler> s_handlers =
+            new ConcurrentDictionary<string, ICommandHandler>();
 
         public static void RegisterHandler(string command, ICommandHandler handler)
         {
-            _handlers[command] = handler;
+            s_handlers[command] = handler;
         }
 
         public static bool HasHandler(string command)
         {
-            return !string.IsNullOrEmpty(command) && _handlers.ContainsKey(command);
+            return !string.IsNullOrEmpty(command) && s_handlers.ContainsKey(command);
         }
 
         public static async Task<BridgeResponse> Dispatch(BridgeRequest request)
+        {
+            return await Dispatch(request, CancellationToken.None);
+        }
+
+        public static async Task<BridgeResponse> Dispatch(
+            BridgeRequest request,
+            CancellationToken cancellationToken
+        )
         {
             if (request == null)
                 return BridgeResponse.Fail(null, "Null request");
@@ -30,13 +40,21 @@ namespace Patina.Editor
             if (string.IsNullOrEmpty(command))
                 return BridgeResponse.Fail(id, "Missing command field");
 
-            if (!_handlers.TryGetValue(command, out var handler))
+            if (!s_handlers.TryGetValue(command, out var handler))
                 return BridgeResponse.Fail(id, "Unknown command: " + command);
 
             try
             {
-                object result = await handler.HandleAsync(request.Parameters);
-                return BridgeResponse.Ok(id, result);
+                cancellationToken.ThrowIfCancellationRequested();
+                using (MainThreadQueue.PushCommandCancellation(cancellationToken))
+                {
+                    object result = await handler.HandleAsync(request.Parameters);
+                    return BridgeResponse.Ok(id, result);
+                }
+            }
+            catch (System.OperationCanceledException)
+            {
+                throw;
             }
             catch (System.Exception ex)
             {
@@ -84,7 +102,10 @@ namespace Patina.Editor
             RegisterHandler("get_game_object_info", new GetGameObjectInfoHandler());
             RegisterHandler("get_game_object_components", new GetGameObjectComponentsHandler());
             RegisterHandler("find_game_objects_by_tag", new FindGameObjectsByTagHandler());
-            RegisterHandler("find_game_objects_by_component", new FindGameObjectsByComponentHandler());
+            RegisterHandler(
+                "find_game_objects_by_component",
+                new FindGameObjectsByComponentHandler()
+            );
             RegisterHandler("find_game_objects_by_layer", new FindGameObjectsByLayerHandler());
             // Phase 3 — Scene lifecycle
             RegisterHandler("open_scene", new OpenSceneHandler());
@@ -163,7 +184,7 @@ namespace Patina.Editor
 
         public static int HandlerCount
         {
-            get { return _handlers.Count; }
+            get { return s_handlers.Count; }
         }
     }
 }

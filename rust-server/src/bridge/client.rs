@@ -29,6 +29,7 @@ pub struct BridgeClient {
     lifecycle_task: Mutex<Option<JoinHandle<()>>>,
     pending: PendingMap,
     port: u16,
+    workspace: String,
     is_shutdown: AtomicBool,
     shutdown_tx: watch::Sender<bool>,
     reconnect_tx: watch::Sender<u64>,
@@ -37,6 +38,18 @@ pub struct BridgeClient {
 
 impl BridgeClient {
     pub fn new(port: u16) -> Arc<Self> {
+        let workspace = std::env::current_dir()
+            .ok()
+            .and_then(|path| path.canonicalize().ok().or(Some(path)))
+            .map(|path| path.to_string_lossy().replace('\\', "/"))
+            .unwrap_or_default();
+        Self::new_with_workspace(port, workspace)
+    }
+
+    /// Creates a client with an explicit workspace. The production constructor
+    /// derives this from the MCP process working directory; keeping the
+    /// transport constructor injectable makes default-routing behavior testable.
+    pub(crate) fn new_with_workspace(port: u16, workspace: String) -> Arc<Self> {
         let (shutdown_tx, _) = watch::channel(false);
         let (reconnect_tx, _) = watch::channel(0);
         Arc::new(Self {
@@ -45,6 +58,7 @@ impl BridgeClient {
             lifecycle_task: Mutex::new(None),
             pending: Arc::new(DashMap::new()),
             port,
+            workspace,
             is_shutdown: AtomicBool::new(false),
             shutdown_tx,
             reconnect_tx,
@@ -54,6 +68,13 @@ impl BridgeClient {
 
     pub fn port(&self) -> u16 {
         self.port
+    }
+
+    /// The canonical working directory sent to the shared broker for default
+    /// workspace routing. Kept raw for diagnostics; the broker normalizes it
+    /// before selecting a Unity session.
+    pub fn workspace(&self) -> &str {
+        &self.workspace
     }
 
     pub async fn start(self: &Arc<Self>) {
@@ -134,13 +155,22 @@ impl BridgeClient {
         if *shutdown.borrow() {
             return Err("Unity bridge client is shutting down".to_string());
         }
-        let stream = tokio::select! {
+        let mut stream = tokio::select! {
             result = TcpStream::connect(&address) => result.map_err(|error| error.to_string())?,
             _ = shutdown.changed() => return Err("Unity bridge client is shutting down".to_string()),
         };
         stream
             .set_nodelay(true)
             .map_err(|error| error.to_string())?;
+        let hello =
+            serde_json::to_vec(&serde_json::json!({"role":"agent", "workspace": self.workspace}))
+                .map_err(|e| e.to_string())?;
+        stream
+            .write_all(&(hello.len() as u32).to_le_bytes())
+            .await
+            .map_err(|e| e.to_string())?;
+        stream.write_all(&hello).await.map_err(|e| e.to_string())?;
+        stream.flush().await.map_err(|e| e.to_string())?;
         let (reader, writer) = stream.into_split();
 
         let _publication = self.publication_lock.lock().await;
@@ -156,7 +186,9 @@ impl BridgeClient {
     }
 
     async fn ensure_connected(&self) -> Result<(), String> {
-        let deadline = tokio::time::Instant::now() + Duration::from_secs(5);
+        // A request must not turn the MCP host into a long synchronous retry loop while
+        // the lifecycle task is already reconnecting in the background.
+        let deadline = tokio::time::Instant::now() + Duration::from_secs(1);
         loop {
             if self.is_shutdown() {
                 return Err("Unity bridge client is shutting down".to_string());
@@ -165,7 +197,7 @@ impl BridgeClient {
                 return Ok(());
             }
             if tokio::time::Instant::now() >= deadline {
-                return Err("Not connected to Unity bridge. If Unity is open, it may be blocked by a modal dialog or save-changes prompt; resolve any Unity popup and retry.".to_string());
+                return Err("BROKER_UNAVAILABLE: Patina's shared broker is not connected to a Unity session yet. Keep Unity open and retry after its broker reconnects.".to_string());
             }
             if !self.wait_or_shutdown(Duration::from_millis(50)).await {
                 return Err("Unity bridge client is shutting down".to_string());
@@ -267,13 +299,26 @@ impl BridgeClient {
         command: &str,
         params: serde_json::Value,
     ) -> Result<BridgeResponse, String> {
+        self.request_targeted(command, params, None, None).await
+    }
+
+    pub async fn request_targeted(
+        self: &Arc<Self>,
+        command: &str,
+        params: serde_json::Value,
+        workspace: Option<&str>,
+        session_id: Option<&str>,
+    ) -> Result<BridgeResponse, String> {
         const BACKOFFS: [Duration; 3] = [
             Duration::from_millis(200),
             Duration::from_millis(400),
             Duration::from_millis(800),
         ];
         for (attempt, backoff) in BACKOFFS.iter().copied().enumerate() {
-            match self.do_request(command, &params).await {
+            match self
+                .do_request(command, &params, workspace, session_id)
+                .await
+            {
                 Ok(response) => return Ok(response),
                 Err(error) if is_transient_bridge_error(&error) => {
                     warn!(
@@ -292,21 +337,25 @@ impl BridgeClient {
                 Err(error) => return Err(error),
             }
         }
-        self.do_request(command, &params).await
+        self.do_request(command, &params, workspace, session_id)
+            .await
     }
 
     async fn do_request(
         self: &Arc<Self>,
         command: &str,
         params: &serde_json::Value,
+        workspace: Option<&str>,
+        session_id: Option<&str>,
     ) -> Result<BridgeResponse, String> {
         self.ensure_connected().await?;
         let id = Uuid::new_v4().to_string();
-        let payload = serde_json::to_vec(&BridgeRequest {
+        let request = BridgeRequest {
             id: id.clone(),
             command: command.to_string(),
             params: params.clone(),
-        })
+        };
+        let payload = serde_json::to_vec(&serde_json::json!({"type":"request", "workspace":workspace.unwrap_or(&self.workspace), "sessionId":session_id, "request":request}))
         .map_err(|error| format!("Serialize error: {}", error))?;
         let (sender, receiver) = oneshot::channel();
         self.pending.insert(id.clone(), sender);
@@ -408,10 +457,20 @@ mod tests {
         stream.read_exact(&mut header).await.unwrap();
         let mut body = vec![0; u32::from_le_bytes(header) as usize];
         stream.read_exact(&mut body).await.unwrap();
-        serde_json::from_slice::<serde_json::Value>(&body).unwrap()["id"]
+        serde_json::from_slice::<serde_json::Value>(&body).unwrap()["request"]["id"]
             .as_str()
             .unwrap()
             .to_string()
+    }
+    async fn drain_hello(stream: &mut TcpStream) {
+        let mut header = [0; 4];
+        stream.read_exact(&mut header).await.unwrap();
+        let mut body = vec![0; u32::from_le_bytes(header) as usize];
+        stream.read_exact(&mut body).await.unwrap();
+        assert_eq!(
+            serde_json::from_slice::<serde_json::Value>(&body).unwrap()["role"],
+            "agent"
+        );
     }
     async fn write_response(stream: &mut TcpStream, id: String) {
         let body =
@@ -431,6 +490,7 @@ mod tests {
         let client = BridgeClient::new(listener.local_addr().unwrap().port());
         client.start().await;
         let (mut peer, _) = listener.accept().await.unwrap();
+        drain_hello(&mut peer).await;
         client.shutdown().await;
         client.shutdown().await;
         let mut byte = [0; 1];
@@ -456,6 +516,26 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn unavailable_broker_request_is_bounded_while_reconnect_continues() {
+        let reserved = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = reserved.local_addr().unwrap().port();
+        drop(reserved);
+        let client = BridgeClient::new(port);
+        client.start().await;
+
+        let result = tokio::time::timeout(
+            Duration::from_secs(2),
+            client.request("get_editor_state", serde_json::json!({})),
+        )
+        .await
+        .expect("unavailable broker request should not hang")
+        .expect_err("request should fail without a broker");
+        assert!(result.starts_with("BROKER_UNAVAILABLE:"));
+        assert!(client.lifecycle_task.lock().await.is_some());
+        client.shutdown().await;
+    }
+
+    #[tokio::test]
     async fn shutdown_wins_when_a_connection_is_waiting_to_publish() {
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let client = BridgeClient::new(listener.local_addr().unwrap().port());
@@ -465,6 +545,7 @@ mod tests {
             tokio::spawn(async move { client.try_connect_once().await })
         };
         let (mut peer, _) = listener.accept().await.unwrap();
+        drain_hello(&mut peer).await;
         let stopping = {
             let client = client.clone();
             tokio::spawn(async move { client.shutdown().await })
@@ -540,9 +621,11 @@ mod tests {
         let client = BridgeClient::new(listener.local_addr().unwrap().port());
         client.start().await;
         let server = tokio::spawn(async move {
-            let (first, _) = listener.accept().await.unwrap();
+            let (mut first, _) = listener.accept().await.unwrap();
+            drain_hello(&mut first).await;
             drop(first);
             let (mut second, _) = listener.accept().await.unwrap();
+            drain_hello(&mut second).await;
             let request_id = read_request_id(&mut second).await;
             write_response(&mut second, request_id).await;
         });

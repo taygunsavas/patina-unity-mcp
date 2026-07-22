@@ -39,7 +39,16 @@ pub struct PatinaCallArgs {
     /// JSON parameters for the command. Pass {} for commands with no parameters.
     #[serde(default = "default_parameters")]
     pub parameters: Value,
+    /// Optional canonical workspace path. Defaults to this MCP process working directory.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub workspace: Option<String>,
+    /// Optional exact Unity session ID. Required when a workspace has multiple open editors.
+    #[serde(rename = "sessionId", skip_serializing_if = "Option::is_none")]
+    pub session_id: Option<String>,
 }
+
+#[derive(Debug, Deserialize, Serialize, JsonSchema)]
+pub struct PatinaSessionsArgs {}
 
 fn default_parameters() -> Value {
     json!({})
@@ -60,12 +69,18 @@ impl UnityMcpServer {
         Self { bridge }
     }
 
-    async fn call_bridge(
+    async fn call_bridge_targeted(
         &self,
         command: &str,
         params: serde_json::Value,
+        workspace: Option<&str>,
+        session_id: Option<&str>,
     ) -> Result<CallToolResult, McpError> {
-        match self.bridge.request(command, params).await {
+        match self
+            .bridge
+            .request_targeted(command, params, workspace, session_id)
+            .await
+        {
             Ok(response) => {
                 if response.success {
                     let text = response
@@ -88,6 +103,14 @@ impl UnityMcpServer {
             }
             Err(e) => Ok(CallToolResult::error(vec![ContentBlock::text(e)])),
         }
+    }
+
+    async fn call_bridge(
+        &self,
+        command: &str,
+        params: serde_json::Value,
+    ) -> Result<CallToolResult, McpError> {
+        self.call_bridge_targeted(command, params, None, None).await
     }
 
     fn json_result(value: Value) -> Result<CallToolResult, McpError> {
@@ -135,7 +158,7 @@ impl UnityMcpServer {
 
     #[tool(
         name = "patina_call",
-        description = "Execute an internal Patina Unity command by name. Use patina_capabilities first to find commands and request a schema for the specific command."
+        description = "Execute an internal Patina Unity command. Defaults to the agent working-directory workspace; optionally target another workspace or sessionId."
     )]
     async fn patina_call(
         &self,
@@ -154,7 +177,25 @@ impl UnityMcpServer {
             args.parameters
         };
 
-        self.call_bridge(&args.command, parameters).await
+        self.call_bridge_targeted(
+            &args.command,
+            parameters,
+            args.workspace.as_deref(),
+            args.session_id.as_deref(),
+        )
+        .await
+    }
+
+    #[tool(
+        name = "patina_sessions",
+        description = "List active Unity sessions registered with the shared Patina broker, including workspace paths and health."
+    )]
+    async fn patina_sessions(
+        &self,
+        Parameters(_args): Parameters<PatinaSessionsArgs>,
+    ) -> Result<CallToolResult, McpError> {
+        self.call_bridge("__patina_broker_sessions", json!({}))
+            .await
     }
 
     #[tool(
@@ -169,11 +210,21 @@ impl UnityMcpServer {
             "server": "patina",
             "version": env!("CARGO_PKG_VERSION"),
             "surface": "compact",
-            "advertisedToolCount": 3,
+            "advertisedToolCount": 4,
             "internalCommandCount": catalog::command_count(),
             "bridgePort": self.bridge.port(),
+            "agentWorkspace": self.bridge.workspace(),
             "categories": catalog::categories(),
         });
+        if let Ok(response) = self
+            .bridge
+            .request("__patina_broker_health", json!({}))
+            .await
+        {
+            if response.success {
+                result["broker"] = response.result.unwrap_or(Value::Null);
+            }
+        }
 
         if args.include_unity_state.unwrap_or(false) {
             match self.bridge.request("get_editor_state", json!({})).await {

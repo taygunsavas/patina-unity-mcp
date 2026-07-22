@@ -12,6 +12,9 @@ namespace Patina.Editor
         private Label _summaryLabel;
         private Label _statusLabel;
         private Label _portDisplayLabel;
+        private Label _agentsLabel;
+        private Label _editorsLabel;
+        private Label _sessionHealthLabel;
         private Label _clientsLabel;
         private Label _runtimeSourceLabel;
         private Label _binaryPathLabel;
@@ -82,7 +85,9 @@ namespace Patina.Editor
             title.style.fontSize = 16;
             container.Add(title);
 
-            Label subtitle = new Label("Install once via UPM, then run a single setup flow for supported MCP hosts.");
+            Label subtitle = new Label(
+                "Install once via UPM, then run a single setup flow for supported MCP hosts."
+            );
             subtitle.style.whiteSpace = WhiteSpace.Normal;
             subtitle.style.color = new Color(0.75f, 0.75f, 0.75f);
             subtitle.style.marginTop = 2;
@@ -103,7 +108,8 @@ namespace Patina.Editor
 
             _setupHelpBox = new HelpBox(
                 "Automatic setup updates supported local MCP hosts, refreshes stale Patina entries, and keeps linked integrations aligned through shared host config files.",
-                HelpBoxMessageType.Info);
+                HelpBoxMessageType.Info
+            );
             _setupHelpBox.style.marginBottom = 6;
             box.Add(_setupHelpBox);
 
@@ -128,7 +134,10 @@ namespace Patina.Editor
             _setupButton.style.marginBottom = 6;
             actionsRow.Add(_setupButton);
 
-            _removeButton = new Button(OnRemovePatinaFromHosts) { text = "Remove Patina From Hosts" };
+            _removeButton = new Button(OnRemovePatinaFromHosts)
+            {
+                text = "Remove Patina From Hosts",
+            };
             _removeButton.style.height = 32;
             _removeButton.style.flexGrow = 1;
             _removeButton.style.minWidth = 150;
@@ -171,16 +180,15 @@ namespace Patina.Editor
 
         private VisualElement CreateAdvancedSection()
         {
-            Foldout foldout = new Foldout
-            {
-                text = "Advanced Bridge Controls",
-                value = false
-            };
+            Foldout foldout = new Foldout { text = "Advanced Bridge Controls", value = false };
 
             VisualElement statusBox = new VisualElement();
             statusBox.style.marginTop = 4;
             statusBox.Add(CreateInfoRow("Bridge Status", out _statusLabel));
             statusBox.Add(CreateInfoRow("Port", out _portDisplayLabel));
+            statusBox.Add(CreateInfoRow("Agents", out _agentsLabel));
+            statusBox.Add(CreateInfoRow("Editors", out _editorsLabel));
+            statusBox.Add(CreateInfoRow("Local Session", out _sessionHealthLabel));
             statusBox.Add(CreateInfoRow("Connected Clients", out _clientsLabel));
 
             _serverHelpBox = new HelpBox(string.Empty, HelpBoxMessageType.Info);
@@ -226,24 +234,30 @@ namespace Patina.Editor
             string binaryPath = ProcessManager.FindServerBinary();
             bool hasBinary = !string.IsNullOrEmpty(binaryPath);
             string runtimeStatusMessage = ProcessManager.GetRuntimeStatusMessage();
-            ProcessManager.RuntimeSourceKind runtimeSourceKind = ProcessManager.GetRuntimeSourceKind();
+            ProcessManager.RuntimeSourceKind runtimeSourceKind =
+                ProcessManager.GetRuntimeSourceKind();
 
-            _summaryLabel.text = _lastSetupResults == null
-                ? "Ready to configure local host integrations automatically."
-                : HostSetupManager.BuildOverallSummary(_lastSetupResults);
+            _summaryLabel.text =
+                _lastSetupResults == null
+                    ? "Ready to configure local host integrations automatically."
+                    : HostSetupManager.BuildOverallSummary(_lastSetupResults);
 
             _statusLabel.text = GetBridgeStateLabel(bridgeStatus.State);
             _statusLabel.style.color = GetBridgeStateColor(bridgeStatus.State);
 
             _portDisplayLabel.text = bridgeStatus.Port.ToString();
+            _agentsLabel.text = bridgeStatus.TrackedClientCount.ToString();
+            _editorsLabel.text = McpBridgeServer.ActiveUnitySessions.ToString();
+            _sessionHealthLabel.text = McpBridgeServer.LocalSessionHealth;
             _clientsLabel.text = bridgeStatus.TrackedClientCount.ToString();
             _runtimeSourceLabel.text = ProcessManager.GetRuntimeSourceLabel();
-            _binaryPathLabel.text = hasBinary
-                ? binaryPath
-                : runtimeStatusMessage;
+            _binaryPathLabel.text = hasBinary ? binaryPath : runtimeStatusMessage;
             _configPathLabel.text = ProcessManager.GetPackageId();
 
-            _registrationHelpBox.text = "Per-host setup state is shown in Host Results. " + runtimeStatusMessage + " One-Click Setup writes supported hosts to the stable Patina runtime and replaces stale entries when needed.";
+            _registrationHelpBox.text =
+                "Per-host setup state is shown in Host Results. "
+                + runtimeStatusMessage
+                + " One-Click Setup writes supported hosts to the stable Patina runtime and replaces stale entries when needed.";
             _registrationHelpBox.messageType = HelpBoxMessageType.Info;
 
             bool contributorModeAvailable = ProcessManager.IsContributorModeAvailable();
@@ -257,16 +271,21 @@ namespace Patina.Editor
             _startButton.SetEnabled(CanStartBridge(bridgeStatus.State));
             _stopButton.SetEnabled(CanStopBridge(bridgeStatus.State));
             _restartButton.SetEnabled(true);
-            _localRuntimeToggle.style.display = contributorModeAvailable ? DisplayStyle.Flex : DisplayStyle.None;
-            _localRuntimeToggle.SetValueWithoutNotify(ProcessManager.IsLocalRuntimeOverrideRequested);
+            _localRuntimeToggle.style.display = contributorModeAvailable
+                ? DisplayStyle.Flex
+                : DisplayStyle.None;
+            _localRuntimeToggle.SetValueWithoutNotify(
+                ProcessManager.IsLocalRuntimeOverrideRequested
+            );
             _developmentHelpBox.text = contributorModeAvailable
                 ? runtimeStatusMessage
                 : "Packaged runtime is active. Local runtime overrides are only available from a local source checkout or a project with a published dev runtime.";
-            _developmentHelpBox.messageType = runtimeSourceKind == ProcessManager.RuntimeSourceKind.Contributor
-                ? HelpBoxMessageType.Warning
+            _developmentHelpBox.messageType =
+                runtimeSourceKind == ProcessManager.RuntimeSourceKind.Contributor
+                    ? HelpBoxMessageType.Warning
                 : runtimeSourceKind == ProcessManager.RuntimeSourceKind.Missing
                     ? HelpBoxMessageType.Error
-                    : HelpBoxMessageType.Info;
+                : HelpBoxMessageType.Info;
 
             _serverHelpBox.text = BuildBridgeHelpText(bridgeStatus);
             _serverHelpBox.messageType = GetBridgeHelpType(bridgeStatus.State);
@@ -276,17 +295,19 @@ namespace Patina.Editor
                 _setupHelpBox.text = hasBinary
                     ? "Automatic setup updates supported local MCP hosts, removes stale Patina entries, and keeps linked integrations aligned through the stable Patina runtime."
                     : runtimeStatusMessage;
-                _setupHelpBox.messageType = hasBinary ? HelpBoxMessageType.Info : HelpBoxMessageType.Error;
+                _setupHelpBox.messageType = hasBinary
+                    ? HelpBoxMessageType.Info
+                    : HelpBoxMessageType.Error;
             }
         }
 
         private static bool CanStartBridge(BridgeRuntimeState state)
         {
             return state == BridgeRuntimeState.Stopped
-                   || state == BridgeRuntimeState.Error
-                   || state == BridgeRuntimeState.PortOwnedByOtherProcess
-                   || state == BridgeRuntimeState.PoisonedPort
-                   || state == BridgeRuntimeState.StaleInProcess;
+                || state == BridgeRuntimeState.Error
+                || state == BridgeRuntimeState.PortOwnedByOtherProcess
+                || state == BridgeRuntimeState.PoisonedPort
+                || state == BridgeRuntimeState.StaleInProcess;
         }
 
         private static bool CanStopBridge(BridgeRuntimeState state)
@@ -356,7 +377,9 @@ namespace Patina.Editor
             string owner = status.ListenerPid.HasValue
                 ? $" Listener PID: {status.ListenerPid.Value} ({(string.IsNullOrEmpty(status.ListenerProcessName) ? "unknown" : status.ListenerProcessName)})."
                 : string.Empty;
-            string ping = string.IsNullOrEmpty(status.PingMessage) ? string.Empty : " Ping: " + status.PingMessage;
+            string ping = string.IsNullOrEmpty(status.PingMessage)
+                ? string.Empty
+                : " Ping: " + status.PingMessage;
             return status.Message + owner + ping;
         }
 
@@ -379,7 +402,9 @@ namespace Patina.Editor
             _setupHelpBox.text = restartRequired
                 ? "Setup completed. Restart any configured host before testing tool calls."
                 : "Setup completed.";
-            _setupHelpBox.messageType = failed ? HelpBoxMessageType.Warning : HelpBoxMessageType.Info;
+            _setupHelpBox.messageType = failed
+                ? HelpBoxMessageType.Warning
+                : HelpBoxMessageType.Info;
 
             RefreshUI();
         }
@@ -400,7 +425,9 @@ namespace Patina.Editor
             _setupHelpBox.text = removed
                 ? "Patina was removed from detected host configs. Restart affected hosts before testing again."
                 : "No Patina entries were present to remove.";
-            _setupHelpBox.messageType = failed ? HelpBoxMessageType.Warning : HelpBoxMessageType.Info;
+            _setupHelpBox.messageType = failed
+                ? HelpBoxMessageType.Warning
+                : HelpBoxMessageType.Info;
 
             RefreshUI();
         }
@@ -474,7 +501,7 @@ namespace Patina.Editor
                 {
                     multiline = true,
                     value = result.ExportSnippet,
-                    isReadOnly = true
+                    isReadOnly = true,
                 };
                 snippet.style.marginTop = 6;
                 snippet.style.minHeight = 84;
@@ -484,7 +511,10 @@ namespace Patina.Editor
 
             if (result.RequiresRestart)
             {
-                HelpBox restart = new HelpBox(GetRestartHelpText(result.Status), HelpBoxMessageType.Warning);
+                HelpBox restart = new HelpBox(
+                    GetRestartHelpText(result.Status),
+                    HelpBoxMessageType.Warning
+                );
                 restart.style.marginTop = 6;
                 card.Add(restart);
             }
@@ -542,6 +572,3 @@ namespace Patina.Editor
         }
     }
 }
-
-
-

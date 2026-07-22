@@ -1,6 +1,7 @@
-using Newtonsoft.Json.Linq;
 using System.Threading.Tasks;
+using Newtonsoft.Json.Linq;
 using UnityEditor;
+using UnityEditor.Build;
 using UnityEngine;
 
 namespace Patina.Editor.Commands
@@ -11,8 +12,15 @@ namespace Patina.Editor.Commands
         {
             JObject result = await MainThreadQueue.EnqueueAsync(() =>
             {
-                string scriptingBackend = PlayerSettings.GetScriptingBackend(
-                    BuildPipeline.GetBuildTargetGroup(EditorUserBuildSettings.activeBuildTarget)).ToString();
+                string scriptingBackend = PlayerSettings
+                    .GetScriptingBackend(
+                        NamedBuildTarget.FromBuildTargetGroup(
+                            BuildPipeline.GetBuildTargetGroup(
+                                EditorUserBuildSettings.activeBuildTarget
+                            )
+                        )
+                    )
+                    .ToString();
 
                 Vector3 gravity = Physics.gravity;
 
@@ -26,7 +34,7 @@ namespace Patina.Editor.Commands
                     ["isPlaying"] = EditorApplication.isPlaying,
                     ["isCompiling"] = EditorApplication.isCompiling,
                     ["scriptingBackend"] = scriptingBackend,
-                    ["physicsGravity"] = new JArray(gravity.x, gravity.y, gravity.z)
+                    ["physicsGravity"] = new JArray(gravity.x, gravity.y, gravity.z),
                 };
             });
 

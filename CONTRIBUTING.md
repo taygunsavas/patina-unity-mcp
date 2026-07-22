@@ -81,7 +81,19 @@ Run the checks that match your change before opening a pull request:
 cd rust-server
 cargo fmt --all
 cargo test
+cargo clippy --all-targets --all-features -- -D warnings
 ```
+
+For C# changes, run the changed-file formatting and style gates from the repository root:
+
+```powershell
+dotnet tool restore
+pwsh -File scripts/check-csharp-format.ps1 -BaseRef main
+pwsh -File scripts/check-csharp-style.ps1 -BaseRef main
+dotnet test tools/Patina.CSharpStyleCheck.Tests/Patina.CSharpStyleCheck.Tests.csproj
+```
+
+The C# style gate intentionally checks only added or modified non-generated C# files. It enforces explicit accessibility and the repository naming conventions without requiring a bulk cleanup of legacy Unity package code.
 
 - If you changed packaging or runtime publishing behavior, also run `pwsh -File scripts/publish-dev-runtime.ps1`.
 - If you changed the Unity package layout, also run `pwsh -File scripts/stage-local-upm.ps1`.
