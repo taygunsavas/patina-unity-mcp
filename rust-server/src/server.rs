@@ -40,7 +40,11 @@ pub struct PatinaCallArgs {
     /// parameters. A JSON-object-encoded string (e.g. "{\"x\":1}") is also
     /// accepted and parsed; null or an empty/whitespace string is treated as {}.
     /// Any other type (number, bool, array, non-object string) is rejected.
+    // Declared as an object in the schema so clients serialize it as one. The Rust
+    // type stays `Value` so a client that sends a JSON-encoded string is still
+    // normalized by `normalize_parameters` rather than rejected at deserialization.
     #[serde(default = "default_parameters")]
+    #[schemars(with = "serde_json::Map<String, Value>")]
     pub parameters: Value,
     /// Optional canonical workspace path. Defaults to this MCP process working directory.
     #[serde(skip_serializing_if = "Option::is_none")]
