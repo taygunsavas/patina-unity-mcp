@@ -415,7 +415,11 @@ namespace Patina.Editor
                 {
                     if (!token.IsCancellationRequested && IsCurrentGeneration(generation))
                     {
-                        s_lastError = "Patina broker connection dropped: " + ex.GetType().Name + ": " + ex.Message;
+                        s_lastError =
+                            "Patina broker connection dropped: "
+                            + ex.GetType().Name
+                            + ": "
+                            + ex.Message;
                         s_health = "reconnecting";
                         UnityEngine.Debug.LogWarning("[Patina] " + s_lastError);
                         TryLaunchBroker(metadata, generation);
@@ -533,10 +537,48 @@ namespace Patina.Editor
                         string json = await ReadFrameAsync(stream).ConfigureAwait(false);
                         if (json == null)
                             return;
-                        JObject envelope = JsonConvert.DeserializeObject<JObject>(json);
-                        BridgeRequest request = envelope?["request"]?.ToObject<BridgeRequest>();
-                        if (request == null)
+                        BridgeRequest request;
+                        try
+                        {
+                            JObject envelope = JsonConvert.DeserializeObject<JObject>(json);
+                            request = envelope?["request"]?.ToObject<BridgeRequest>();
+                            if (request == null)
+                                continue;
+                        }
+                        catch (Exception parseEx)
+                        {
+                            // A malformed frame (e.g. "params" sent as a scalar instead of a
+                            // JSON object) must never take down the whole connection -- report
+                            // it to the caller and keep reading. Best-effort recovery of the
+                            // request id lets the agent correlate the failure with its call.
+                            string failedId = null;
+                            try
+                            {
+                                JObject rawEnvelope = JsonConvert.DeserializeObject<JObject>(json);
+                                failedId = rawEnvelope?["request"]?["id"]?.Value<string>();
+                            }
+                            catch { }
+                            UnityEngine.Debug.LogWarning(
+                                "[Patina] Failed to parse incoming request frame: "
+                                    + parseEx.Message
+                            );
+                            if (failedId != null)
+                            {
+                                await WriteResponseAsync(
+                                        client,
+                                        stream,
+                                        writeGate,
+                                        BridgeResponse.Fail(
+                                            failedId,
+                                            "Request could not be parsed: params must be a JSON object. "
+                                                + parseEx.Message,
+                                            "BAD_REQUEST"
+                                        )
+                                    )
+                                    .ConfigureAwait(false);
+                            }
                             continue;
+                        }
                         if (request.Command == "__patina_bridge_ping")
                         {
                             await WriteResponseAsync(

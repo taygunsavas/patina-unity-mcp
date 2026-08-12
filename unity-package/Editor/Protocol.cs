@@ -1,8 +1,35 @@
+using System;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 
 namespace Patina.Editor
 {
+    /// <summary>
+    /// Some MCP clients serialize an empty/omitted "params" as a scalar (e.g. null,
+    /// an empty string, or a number) instead of a JSON object. Every command handler
+    /// expects a <see cref="JObject"/>, so tolerate non-object "params" by treating
+    /// them as an empty object instead of throwing during deserialization.
+    /// </summary>
+    public class TolerantParametersConverter : JsonConverter<JObject>
+    {
+        public override JObject ReadJson(
+            JsonReader reader,
+            Type objectType,
+            JObject existingValue,
+            bool hasExistingValue,
+            JsonSerializer serializer
+        )
+        {
+            JToken token = JToken.ReadFrom(reader);
+            return token is JObject obj ? obj : new JObject();
+        }
+
+        public override void WriteJson(JsonWriter writer, JObject value, JsonSerializer serializer)
+        {
+            (value ?? new JObject()).WriteTo(writer);
+        }
+    }
+
     public class BridgeRequest
     {
         [JsonProperty("id")]
@@ -12,6 +39,7 @@ namespace Patina.Editor
         public string Command { get; set; }
 
         [JsonProperty("params")]
+        [JsonConverter(typeof(TolerantParametersConverter))]
         public JObject Parameters { get; set; }
     }
 
@@ -45,7 +73,7 @@ namespace Patina.Editor
                 Id = id,
                 Success = true,
                 Result = result,
-                Error = null
+                Error = null,
             };
         }
 
@@ -56,7 +84,7 @@ namespace Patina.Editor
                 Id = id,
                 Success = false,
                 Result = null,
-                Error = new BridgeError { Code = code, Message = message }
+                Error = new BridgeError { Code = code, Message = message },
             };
         }
     }
