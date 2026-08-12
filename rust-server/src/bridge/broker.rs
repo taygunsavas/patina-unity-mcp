@@ -1819,6 +1819,15 @@ mod tests {
         config.heartbeat_interval = Duration::from_millis(300);
         config.heartbeat_timeout = Duration::from_millis(1200);
         config.last_session_grace = Duration::from_millis(1500);
+        // Inert today -- `stale_after` is only read by `sessions_json`, and this
+        // test never queries sessions -- but left at test_config()'s 40ms it is
+        // incoherent with the 300ms interval above: a session would be reported
+        // "stale" for 260ms out of every 300ms tick simply because heartbeats
+        // are that far apart. Scaled to 900ms (3x the interval, still comfortably
+        // inside this test's 1200ms heartbeat_timeout) so that a future edit
+        // adding a session query here does not inherit a threshold that was
+        // never meant for this interval.
+        config.stale_after = Duration::from_millis(900);
         let (address, mut broker) = start_broker(config).await;
         let unity = connect_unity(address, "a", "E:/Projects/A", Some("responsive")).await;
         // Heartbeat ticks land at ~300ms, ~600ms, ~900ms, ... after broker
@@ -1939,7 +1948,31 @@ mod tests {
 
     #[tokio::test]
     async fn assembly_reload_parks_session_and_replays_read_request() {
-        let (address, broker) = start_broker(test_config()).await;
+        // `connect_unity_raw` never answers heartbeats, so a session it opens has
+        // its `last_seen` frozen at registration and the broker evicts it
+        // `heartbeat_timeout` later. test_config()'s 90ms is smaller than the
+        // window this test actually needs the session to stay live for: the
+        // pre-park half spans a `wait_for_sessions` poll plus a full
+        // agent->broker->Unity round trip, and the post-resume half spans another
+        // registration, a replayed-request read, a response, and a
+        // `wait_for_resumed` poll -- the same helpers used across the reload
+        // tests below tolerate ~3s of runner starvation by design, so
+        // heartbeat_timeout is raised to 5s, at parity with reload_grace, to
+        // actually clear that ceiling instead of merely pushing it out. Measured:
+        // a stall injected into the raw session after registration still passes
+        // at 2500ms and 4500ms under this config and starts evicting at 5500ms;
+        // a smaller timeout (e.g. 1-2s) left eviction as the first thing to fire
+        // inside the window the polling helpers themselves would still tolerate.
+        //
+        // Between those two halves the session is parked, where `reload_grace`
+        // -- not `heartbeat_timeout` -- is the timer that can drop it, taking
+        // the held `read-1` with it. That interval spans a polled
+        // `wait_for_session_status` plus a fresh Unity connect, so
+        // test_config()'s 300ms is widened on the same grounds.
+        let mut config = test_config();
+        config.heartbeat_timeout = Duration::from_secs(5);
+        config.reload_grace = Duration::from_secs(5);
+        let (address, broker) = start_broker(config).await;
         let (mut unity_reader, mut unity_writer) =
             connect_unity_raw(address, "a", "E:/Projects/A", 7, 0).await;
         let (mut agent_reader, mut agent_writer) = connect_agent(address, "E:/Projects/A").await;
@@ -1985,7 +2018,20 @@ mod tests {
 
     #[tokio::test]
     async fn assembly_reload_fails_in_flight_write_command_with_reload_interrupted() {
-        let (address, broker) = start_broker(test_config()).await;
+        // Raw (heartbeat-silent) session, so test_config()'s 90ms eviction budget
+        // has to cover everything from registration to the unregister frame: a
+        // `wait_for_sessions` poll, the write-1 dispatch, and the Unity-side read
+        // of it. If eviction wins that race the session is gone before the
+        // unregister lands, so `write-1` is failed by `remove_session` with
+        // SESSION_UNAVAILABLE instead of by `park_session_for_reload` with the
+        // SESSION_RELOAD_INTERRUPTED this test asserts -- a wrong-code failure
+        // that says nothing about the timeout that caused it. Raised to 5s, the
+        // same value used across the reload tests, to clear the ~3s ceiling the
+        // polling helpers themselves tolerate rather than just push the eviction
+        // race further out.
+        let mut config = test_config();
+        config.heartbeat_timeout = Duration::from_secs(5);
+        let (address, broker) = start_broker(config).await;
         let (mut unity_reader, mut unity_writer) =
             connect_unity_raw(address, "a", "E:/Projects/A", 7, 0).await;
         let (mut agent_reader, mut agent_writer) = connect_agent(address, "E:/Projects/A").await;
@@ -2016,7 +2062,24 @@ mod tests {
 
     #[tokio::test]
     async fn request_during_reload_window_is_held_for_read_and_rejected_for_write() {
-        let (address, broker) = start_broker(test_config()).await;
+        // Two raw (heartbeat-silent) sessions have to survive an eviction budget
+        // here: the pre-reload one until its unregister frame lands, and the
+        // resumed one until it has read and answered the replayed `read-2`.
+        // test_config()'s 90ms covers neither with margin on a loaded runner, so
+        // heartbeat_timeout is raised to 5s (matching reload_grace below) to
+        // actually clear the ~3s ceiling the polling helpers tolerate.
+        //
+        // The parked half is bounded by `reload_grace`, not `heartbeat_timeout`
+        // (a reloading session lives in `state.reloading`, which the stale sweep
+        // never looks at), and this test spends a deliberate 80ms inside that
+        // window proving the held read stays silent -- leaving under 220ms of
+        // test_config()'s 300ms grace for two polled round trips and a
+        // reconnect. Raised together so neither timer, rather than the behavior
+        // under test, decides the outcome.
+        let mut config = test_config();
+        config.heartbeat_timeout = Duration::from_secs(5);
+        config.reload_grace = Duration::from_secs(5);
+        let (address, broker) = start_broker(config).await;
         let (_unity_reader, mut unity_writer) =
             connect_unity_raw(address, "a", "E:/Projects/A", 7, 0).await;
         let (mut agent_reader, mut agent_writer) = connect_agent(address, "E:/Projects/A").await;
@@ -2085,6 +2148,15 @@ mod tests {
         config.startup_grace = Duration::from_millis(30);
         config.last_session_grace = Duration::from_millis(30);
         config.reload_grace = Duration::from_secs(5);
+        // The raw (heartbeat-silent) session must still be live when its
+        // unregister frame lands -- that is the only way it reaches `reloading`,
+        // which is the state this whole test is about. Under test_config()'s 90ms
+        // a starved runner evicts it during the preceding `wait_for_sessions`
+        // poll instead, and the test then fails on "Timed out waiting for session
+        // a to become reloading" as if the park logic were broken. Raised to 5s,
+        // matching the `reload_grace` above, so the live half clears the same
+        // ~3s ceiling the polling helper tolerates.
+        config.heartbeat_timeout = Duration::from_secs(5);
         let (address, broker) = start_broker(config).await;
         let (_unity_reader, mut unity_writer) =
             connect_unity_raw(address, "a", "E:/Projects/A", 7, 0).await;
@@ -2127,6 +2199,20 @@ mod tests {
         // the common case (it doesn't wait for the full duration -- it reads
         // the resulting error responses).
         config.reload_grace = Duration::from_millis(1500);
+        // `reload_grace` above is the timer this test is *about*; the eviction
+        // timer must stay out of its way. The raw (heartbeat-silent) session has
+        // to stay live through a `wait_for_sessions` poll, the `read-dispatched`
+        // round trip and the unregister frame, which test_config()'s 90ms does
+        // not cover on a loaded runner -- and losing that race swaps both
+        // asserted error codes (the dispatched request would be failed by
+        // `remove_session`, and `read-queued` would never reach a reloading
+        // session at all). Raising it cannot pre-empt the expiry sweep this test
+        // measures: the stale sweep only ever looks at `state.sessions`, and the
+        // session has already moved to `state.reloading` by then -- measured:
+        // disabling the expiry sweep fails this test identically at 1s and at
+        // 5s. 5s for parity with the other raw-session tests, which need to
+        // clear the ~3s the polling helpers themselves tolerate.
+        config.heartbeat_timeout = Duration::from_secs(5);
         let (address, broker) = start_broker(config).await;
         let (mut unity_reader, mut unity_writer) =
             connect_unity_raw(address, "a", "E:/Projects/A", 7, 0).await;
@@ -2190,7 +2276,22 @@ mod tests {
 
     #[tokio::test]
     async fn reloading_session_is_reported_as_reloading_by_sessions_and_health() {
-        let (address, broker) = start_broker(test_config()).await;
+        // The raw (heartbeat-silent) session must survive from registration to
+        // its unregister frame -- a `wait_for_sessions` poll away -- or it is
+        // evicted rather than parked and every assertion below is about a
+        // session that no longer exists. test_config()'s 90ms does not cover
+        // that on a loaded runner; raised to 5s, matching `reload_grace` below,
+        // to clear the ~3s ceiling the polling helper tolerates.
+        //
+        // Everything the test asserts is then read *out of* the parked state
+        // (`wait_for_session_status` polling for "reloading", then a health
+        // query), so the parked half is bounded by `reload_grace`. Two polled
+        // round trips inside test_config()'s 300ms is the same kind of thin
+        // margin, so it is widened here too.
+        let mut config = test_config();
+        config.heartbeat_timeout = Duration::from_secs(5);
+        config.reload_grace = Duration::from_secs(5);
+        let (address, broker) = start_broker(config).await;
         let (_unity_reader, mut unity_writer) =
             connect_unity_raw(address, "a", "E:/Projects/A", 7, 3).await;
         let (mut agent_reader, mut agent_writer) = connect_agent(address, "E:/Projects/A").await;
@@ -2225,7 +2326,20 @@ mod tests {
 
     #[tokio::test]
     async fn unregister_without_reason_still_fails_pending_immediately() {
-        let (address, broker) = start_broker(test_config()).await;
+        // This test's whole point is *which* code path fails `legacy-1`: the
+        // reason-less unregister branch. A raw (heartbeat-silent) session under
+        // test_config()'s 90ms can instead be evicted by the stale sweep during
+        // the `wait_for_sessions` poll or the `legacy-1` round trip that precede
+        // the unregister. Evicted early enough, Unity's socket is shut down
+        // before `read_matching_request` sees the dispatch and the test dies on
+        // an unrelated-looking None frame; evicted in the narrow window after
+        // that read, `remove_session` produces the very same SESSION_UNAVAILABLE
+        // this test asserts, from the wrong path, and the test passes for the
+        // wrong reason. Raised to 5s, matching the other reload tests, to clear
+        // the ~3s ceiling the polling helper tolerates.
+        let mut config = test_config();
+        config.heartbeat_timeout = Duration::from_secs(5);
+        let (address, broker) = start_broker(config).await;
         let (mut unity_reader, mut unity_writer) =
             connect_unity_raw(address, "a", "E:/Projects/A", 7, 0).await;
         let (mut agent_reader, mut agent_writer) = connect_agent(address, "E:/Projects/A").await;
@@ -2256,7 +2370,21 @@ mod tests {
 
     #[tokio::test]
     async fn pinned_session_id_survives_assembly_reload() {
-        let (address, broker) = start_broker(test_config()).await;
+        // Both sides of the reload are raw (heartbeat-silent) sessions: the first
+        // has to stay live until its unregister frame lands, and the resumed one
+        // has to stay live for the whole `wait_for_resumed` poll -- which is the
+        // assertion, so evicting it turns "survived the reload" into a ~3s
+        // timeout that blames the resume logic. test_config()'s 90ms is the
+        // binding constraint on both; raised to 5s, matching `reload_grace`
+        // below, to clear the ~3s ceiling the polling helper itself tolerates.
+        //
+        // The parked interval in between is bounded by `reload_grace`, and the
+        // reconnect only happens after a `wait_for_session_status` poll, so
+        // test_config()'s 300ms is widened for the same reason.
+        let mut config = test_config();
+        config.heartbeat_timeout = Duration::from_secs(5);
+        config.reload_grace = Duration::from_secs(5);
+        let (address, broker) = start_broker(config).await;
         let (_unity_reader, mut unity_writer) =
             connect_unity_raw(address, "pinned", "E:/Projects/A", 9, 0).await;
         let (mut agent_reader, mut agent_writer) = connect_agent(address, "E:/Projects/A").await;
