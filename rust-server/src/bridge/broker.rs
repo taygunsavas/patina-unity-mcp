@@ -1723,7 +1723,23 @@ mod tests {
 
     #[tokio::test]
     async fn tcp_heartbeat_reports_blocked_then_evicts_unresponsive_session() {
-        let (address, broker) = start_broker(test_config()).await;
+        // test_config()'s heartbeat_interval (20ms) and stale_after (40ms) sit
+        // only 2x apart. "blocked" refreshes its last_seen on every heartbeat
+        // tick, so its reported age is ordinarily well under stale_after -- but
+        // if a single tick is delayed by scheduler contention (four concurrent
+        // `cargo test` runs sharing a CPU is enough), the age can transiently
+        // cross stale_after and the surviving session gets reported "stale"
+        // instead of "blocked", failing the second assert below even though
+        // nothing about the session's actual health changed. This was observed
+        // in 1/48 concurrent full-suite runs. Overriding locally (rather than
+        // widening test_config(), which other tests share) with a 5x
+        // interval-to-stale_after ratio instead of 2x means a single delayed
+        // tick, or even several in a row, can no longer cross the threshold.
+        let mut config = test_config();
+        config.heartbeat_interval = Duration::from_millis(100);
+        config.stale_after = Duration::from_millis(500);
+        config.heartbeat_timeout = Duration::from_millis(600);
+        let (address, broker) = start_broker(config).await;
         let blocked = connect_unity(address, "blocked", "E:/Projects/A", Some("blocked")).await;
         let silent = connect_unity(address, "silent", "E:/Projects/B", None).await;
         let (mut reader, mut writer) = connect_agent(address, "E:/Projects/A").await;
@@ -1733,7 +1749,10 @@ mod tests {
             .unwrap()
             .iter()
             .any(|s| s["sessionId"] == "blocked"));
-        tokio::time::sleep(Duration::from_millis(55)).await;
+        // "silent" never answers a heartbeat, so the broker evicts it once its
+        // age crosses heartbeat_timeout; wait_for_sessions polls (up to ~3s)
+        // rather than sleeping-then-checking-once, so it observes the eviction
+        // whenever it actually happens instead of racing a fixed deadline.
         let state = wait_for_sessions(&mut reader, &mut writer, 1).await;
         assert_eq!(state["result"][0]["sessionId"], "blocked");
         assert_eq!(state["result"][0]["status"], "blocked");
@@ -1744,9 +1763,17 @@ mod tests {
 
     #[tokio::test]
     async fn tcp_startup_and_last_session_graces_control_broker_lifetime() {
+        // last_session_grace is deliberately large relative to the "not yet
+        // exited" window below: the grace clock starts server-side the moment
+        // the broker sees the last session go away, but this test can only
+        // observe that after a full TCP round trip through wait_for_sessions.
+        // On a loaded runner that round trip can itself stretch into the tens
+        // to low hundreds of milliseconds; keeping the grace an order of
+        // magnitude bigger than the "not yet" window ensures that jitter can
+        // never eat far enough into the grace period to flip the assertion.
         let mut config = test_config();
         config.startup_grace = Duration::from_millis(120);
-        config.last_session_grace = Duration::from_millis(300);
+        config.last_session_grace = Duration::from_millis(900);
         let (address, mut broker) = start_broker(config).await;
         tokio::time::sleep(Duration::from_millis(60)).await;
         let unity_a = connect_unity(address, "a", "E:/Projects/A", Some("responsive")).await;
@@ -1762,7 +1789,7 @@ mod tests {
             .await
             .is_err());
         assert!(!broker.is_finished());
-        assert!(tokio::time::timeout(Duration::from_millis(600), broker)
+        assert!(tokio::time::timeout(Duration::from_millis(1200), broker)
             .await
             .unwrap()
             .unwrap()
@@ -1771,20 +1798,67 @@ mod tests {
 
     #[tokio::test]
     async fn tcp_last_session_grace_starts_after_disconnect_not_previous_heartbeat() {
+        // Real disconnect detection is immediate: aborting `unity`'s task closes
+        // its socket, which unblocks handle_connection's read loop and calls
+        // remove_session directly (see the read loop above, `remove_session` at
+        // the bottom of the "unity" branch). heartbeat_timeout only guards a
+        // *different* failure mode -- a session that is still connected but has
+        // stopped answering heartbeats -- and must never fire before that, or
+        // it evicts a live, still-connected session on the very first tick
+        // before it has had a chance to answer even one heartbeat. Because the
+        // stale-eviction check in `serve()` runs before `send_heartbeats()` in
+        // the same tick, and last_seen is only set at registration until the
+        // first heartbeat reply arrives, heartbeat_timeout must exceed
+        // heartbeat_interval by a solid margin or that first tick evicts
+        // immediately -- decoupling this test entirely from real disconnect
+        // timing (a broker-startup + first-tick race instead of the
+        // disconnect race the name promises). heartbeat_timeout here is 4x
+        // heartbeat_interval, comfortably clear of that trap.
         let mut config = test_config();
         config.startup_grace = Duration::ZERO;
-        config.heartbeat_interval = Duration::from_millis(20);
-        config.last_session_grace = Duration::from_millis(100);
+        config.heartbeat_interval = Duration::from_millis(300);
+        config.heartbeat_timeout = Duration::from_millis(1200);
+        config.last_session_grace = Duration::from_millis(1500);
         let (address, mut broker) = start_broker(config).await;
         let unity = connect_unity(address, "a", "E:/Projects/A", Some("responsive")).await;
-        tokio::time::sleep(Duration::from_millis(25)).await;
+        // Heartbeat ticks land at ~300ms, ~600ms, ~900ms, ... after broker
+        // start. Sleeping 450ms before aborting lands the disconnect at the
+        // midpoint between the tick at 300ms ("the previous tick") and the
+        // tick at 600ms ("the tick that actually observes the disconnect"),
+        // giving well over 100ms of buffer on each side against scheduler
+        // jitter before the disconnect could be mistaken for landing on the
+        // wrong side of either tick.
+        //
+        // Grace measured correctly starts at the 600ms tick and the broker
+        // exits at 600 + 1500 = 2100ms. The bug this test is named for
+        // (retaining the previous tick's timestamp instead of resetting to
+        // None while sessions are still present -- see the mutation note
+        // below) makes grace start at the stale 300ms tick instead, exiting
+        // at 300 + 1500 = 1800ms: a full heartbeat_interval (300ms) early.
+        // The window below closes at 450 + 1500 = 1950ms, the midpoint of
+        // that 1800..2100 gap, so a buggy broker has already exited (assert
+        // fails) while a correct one has not (assert holds).
+        //
+        // Those figures are the nominal grid. Measured, the tick body costs
+        // ~10ms, so ticks land at ~316ms, ~626ms, ... and the real margins are
+        // ~226ms on the correct-broker side and ~84ms on the mutant side. The
+        // skew is safe in the direction that matters: `gone` is always stamped
+        // by a tick *after* the abort, so a correct broker's exit is always
+        // later than abort + grace and a late tick only makes the assert
+        // safer. Only the mutant-detection margin narrows.
+        //
+        // Verified by mutation: forcing the retain-instead-of-reset bug
+        // (`else { last_session_gone = Some(now); }` in place of
+        // `last_session_gone = None;`) turns this assert red; reverting it
+        // turns the assert green again.
+        tokio::time::sleep(Duration::from_millis(450)).await;
         unity.abort();
-        // The disconnect lands just after an active heartbeat tick. The previous
-        // implementation measured grace from that tick and could exit ~20ms early.
-        assert!(tokio::time::timeout(Duration::from_millis(90), &mut broker)
-            .await
-            .is_err());
-        assert!(tokio::time::timeout(Duration::from_millis(180), broker)
+        assert!(
+            tokio::time::timeout(Duration::from_millis(1500), &mut broker)
+                .await
+                .is_err()
+        );
+        assert!(tokio::time::timeout(Duration::from_millis(900), broker)
             .await
             .unwrap()
             .unwrap()
