@@ -76,8 +76,19 @@ namespace Patina.Editor
         private const int DefaultPort = 9800,
             MaxFrameBytes = 4 * 1024 * 1024;
         private const string ExplicitStopSessionStateKey = "Patina.SharedBroker.ExplicitStop";
+        private const string SessionIdSessionStateKey = "Patina.SharedBroker.SessionId";
+        private const string ReloadCountSessionStateKey = "Patina.SharedBroker.ReloadCount";
         private static readonly object s_lock = new object();
-        private static readonly string s_sessionId = Guid.NewGuid().ToString("N");
+
+        // SessionState survives a domain reload within the same editor process, so a
+        // pinned session id (and reload counter) let the broker recognize this editor
+        // across compiles instead of treating every reload as a brand-new session.
+        // MUST stay a static field initializer: it runs on the main thread during
+        // Unity's [InitializeOnLoad] static-constructor pass. Never move this call into
+        // CaptureMetadata() or the connect loop -- those can run off the main thread,
+        // and SessionState is only safe to touch from the main thread.
+        private static readonly string s_sessionId = ResolveSessionId();
+        private static int s_reloadCount = SessionState.GetInt(ReloadCountSessionStateKey, 0);
         private static CancellationTokenSource s_cancel;
         private static Task s_connectTask;
         private static TcpClient s_client;
@@ -114,6 +125,21 @@ namespace Patina.Editor
             RegisterLifecycleHooks();
         }
 
+        /// <summary>
+        /// Resolves the session id for this editor process, reusing the value stashed in
+        /// <see cref="SessionState"/> across domain reloads. Must only be called from the
+        /// static field initializer above -- see the comment on <see cref="s_sessionId"/>.
+        /// </summary>
+        private static string ResolveSessionId()
+        {
+            string existing = SessionState.GetString(SessionIdSessionStateKey, string.Empty);
+            if (!string.IsNullOrEmpty(existing))
+                return existing;
+            string generated = Guid.NewGuid().ToString("N");
+            SessionState.SetString(SessionIdSessionStateKey, generated);
+            return generated;
+        }
+
         [InitializeOnLoadMethod]
         private static void InitializeOnLoad()
         {
@@ -126,7 +152,7 @@ namespace Patina.Editor
                 return;
             s_autoStartEnabled = !SessionState.GetBool(ExplicitStopSessionStateKey, false);
             CommandDispatcher.RegisterBuiltInHandlers();
-            AssemblyReloadEvents.beforeAssemblyReload += StopForEditorShutdown;
+            AssemblyReloadEvents.beforeAssemblyReload += StopForAssemblyReload;
             EditorApplication.quitting += StopForEditorShutdown;
             EditorApplication.delayCall += StartIfAutoStartEnabled;
             EditorApplication.update += EnsureConnectionSupervisor;
@@ -200,12 +226,19 @@ namespace Patina.Editor
             StopInternal(intentional: true);
         }
 
-        private static void StopForEditorShutdown()
+        private static void StopForAssemblyReload()
         {
-            StopInternal(intentional: false);
+            s_reloadCount++;
+            SessionState.SetInt(ReloadCountSessionStateKey, s_reloadCount);
+            StopInternal(intentional: false, disconnectReason: "assemblyReload");
         }
 
-        private static void StopInternal(bool intentional)
+        private static void StopForEditorShutdown()
+        {
+            StopInternal(intentional: false, disconnectReason: "editorShutdown");
+        }
+
+        private static void StopInternal(bool intentional, string disconnectReason = null)
         {
             Interlocked.Increment(ref s_currentGeneration);
             CancellationTokenSource cancel;
@@ -228,12 +261,19 @@ namespace Patina.Editor
             try
             {
                 if (client != null && client.Connected)
-                    WriteFrame(
-                        client.GetStream(),
-                        JsonConvert.SerializeObject(
-                            new { type = "unregister", sessionId = s_sessionId }
-                        )
-                    );
+                {
+                    JObject unregister = new JObject
+                    {
+                        ["type"] = "unregister",
+                        ["sessionId"] = s_sessionId,
+                    };
+                    if (disconnectReason != null)
+                        unregister["reason"] = disconnectReason;
+                    // Stays synchronous: the frame must be fully on the wire before the
+                    // socket closes below, otherwise the broker never sees the reason and
+                    // treats this like an unannounced disconnect.
+                    WriteFrame(client.GetStream(), unregister.ToString(Formatting.None));
+                }
             }
             catch { }
             try
@@ -247,9 +287,10 @@ namespace Patina.Editor
                 cancel?.Dispose();
             }
             UnityEngine.Debug.Log(
-                intentional
-                    ? "[Patina] Shared broker supervisor stopped by user."
-                    : "[Patina] Shared broker supervisor stopped for editor shutdown."
+                intentional ? "[Patina] Shared broker supervisor stopped by user."
+                : disconnectReason == "assemblyReload"
+                    ? "[Patina] Shared broker supervisor stopped for assembly reload."
+                : "[Patina] Shared broker supervisor stopped for editor shutdown."
             );
         }
 
@@ -349,6 +390,7 @@ namespace Patina.Editor
                                 projectName = metadata.ProjectName,
                                 unityPid = metadata.UnityPid,
                                 packageVersion = metadata.PackageVersion,
+                                reloadCount = s_reloadCount,
                             }
                         )
                     );
@@ -369,11 +411,17 @@ namespace Patina.Editor
                         .ConfigureAwait(false);
                 }
                 catch (OperationCanceledException) { }
-                catch (Exception)
+                catch (Exception ex)
                 {
                     if (!token.IsCancellationRequested && IsCurrentGeneration(generation))
                     {
+                        s_lastError =
+                            "Patina broker connection dropped: "
+                            + ex.GetType().Name
+                            + ": "
+                            + ex.Message;
                         s_health = "reconnecting";
+                        UnityEngine.Debug.LogWarning("[Patina] " + s_lastError);
                         TryLaunchBroker(metadata, generation);
                     }
                 }
@@ -489,10 +537,48 @@ namespace Patina.Editor
                         string json = await ReadFrameAsync(stream).ConfigureAwait(false);
                         if (json == null)
                             return;
-                        JObject envelope = JsonConvert.DeserializeObject<JObject>(json);
-                        BridgeRequest request = envelope?["request"]?.ToObject<BridgeRequest>();
-                        if (request == null)
+                        BridgeRequest request;
+                        try
+                        {
+                            JObject envelope = JsonConvert.DeserializeObject<JObject>(json);
+                            request = envelope?["request"]?.ToObject<BridgeRequest>();
+                            if (request == null)
+                                continue;
+                        }
+                        catch (Exception parseEx)
+                        {
+                            // A malformed frame (e.g. "params" sent as a scalar instead of a
+                            // JSON object) must never take down the whole connection -- report
+                            // it to the caller and keep reading. Best-effort recovery of the
+                            // request id lets the agent correlate the failure with its call.
+                            string failedId = null;
+                            try
+                            {
+                                JObject rawEnvelope = JsonConvert.DeserializeObject<JObject>(json);
+                                failedId = rawEnvelope?["request"]?["id"]?.Value<string>();
+                            }
+                            catch { }
+                            UnityEngine.Debug.LogWarning(
+                                "[Patina] Failed to parse incoming request frame: "
+                                    + parseEx.Message
+                            );
+                            if (failedId != null)
+                            {
+                                await WriteResponseAsync(
+                                        client,
+                                        stream,
+                                        writeGate,
+                                        BridgeResponse.Fail(
+                                            failedId,
+                                            "Request could not be parsed: params must be a JSON object. "
+                                                + parseEx.Message,
+                                            "BAD_REQUEST"
+                                        )
+                                    )
+                                    .ConfigureAwait(false);
+                            }
                             continue;
+                        }
                         if (request.Command == "__patina_bridge_ping")
                         {
                             await WriteResponseAsync(

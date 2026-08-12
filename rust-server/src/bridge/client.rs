@@ -309,6 +309,46 @@ impl BridgeClient {
         workspace: Option<&str>,
         session_id: Option<&str>,
     ) -> Result<BridgeResponse, String> {
+        // A real assembly reload can hold the broker's parked session for up to
+        // BrokerConfig::reload_grace (120s by default); this deadline must
+        // comfortably exceed that so a normal compile-triggered reload always has
+        // time to finish before the client gives up.
+        const RELOAD_RETRY_INTERVAL: Duration = Duration::from_millis(500);
+        const RELOAD_RETRY_DEADLINE: Duration = Duration::from_secs(150);
+        let deadline = tokio::time::Instant::now() + RELOAD_RETRY_DEADLINE;
+
+        loop {
+            let response = self
+                .request_targeted_once(command, params.clone(), workspace, session_id)
+                .await?;
+            if response.success {
+                return Ok(response);
+            }
+            let retryable = response
+                .error
+                .as_ref()
+                .is_some_and(|error| is_reload_retryable_code(&error.code));
+            if !retryable || tokio::time::Instant::now() >= deadline {
+                return Ok(response);
+            }
+            // SESSION_RELOADING is only produced by the broker for requests it
+            // never wrote to Unity, so retrying here can never run a write
+            // command twice. Anything the broker already sent to Unity comes
+            // back as SESSION_RELOAD_INTERRUPTED instead, which
+            // `is_reload_retryable_code` deliberately excludes.
+            if !self.wait_or_shutdown(RELOAD_RETRY_INTERVAL).await {
+                return Err("Unity bridge client is shutting down".to_string());
+            }
+        }
+    }
+
+    async fn request_targeted_once(
+        self: &Arc<Self>,
+        command: &str,
+        params: serde_json::Value,
+        workspace: Option<&str>,
+        session_id: Option<&str>,
+    ) -> Result<BridgeResponse, String> {
         const BACKOFFS: [Duration; 3] = [
             Duration::from_millis(200),
             Duration::from_millis(400),
@@ -377,7 +417,8 @@ impl BridgeClient {
             self.pending.remove(&id);
             return Err(error);
         }
-        match tokio::time::timeout(Duration::from_secs(30), receiver).await {
+        let timeout = request_timeout_for(command);
+        match tokio::time::timeout(timeout, receiver).await {
             Ok(Ok(response)) => Ok(response),
             Ok(Err(_)) => {
                 self.pending.remove(&id);
@@ -385,10 +426,60 @@ impl BridgeClient {
             }
             Err(_) => {
                 self.pending.remove(&id);
-                Err(format!("Request '{}' timed out after 30 seconds. Unity may be waiting for input in a modal dialog or save-changes prompt; resolve any Unity popup and retry.", command))
+                Err(format!("Request '{}' timed out after {} seconds. Unity may be waiting for input in a modal dialog or save-changes prompt, or may still be compiling; resolve any Unity popup and retry.", command, timeout.as_secs()))
             }
         }
     }
+}
+
+/// Commands allowed to run for up to 180 seconds instead of the 60 second
+/// default. These are the operations that can legitimately keep Unity's main
+/// thread busy for a while: a full compile, a test run, or a scene/asset
+/// operation that triggers one. A held request replayed after an assembly
+/// reload (see broker.rs) needs this room too, since it does not start
+/// running until the reload itself has already finished.
+const LONG_RUNNING_COMMANDS: [&str; 9] = [
+    "compile_and_get_errors",
+    "force_recompile",
+    "refresh_asset_database",
+    "run_tests",
+    "open_scene",
+    "save_scene",
+    "execute_menu_item",
+    "validate_assets",
+    "create_script",
+];
+
+fn request_timeout_for(command: &str) -> Duration {
+    if LONG_RUNNING_COMMANDS.contains(&command) {
+        Duration::from_secs(180)
+    } else {
+        Duration::from_secs(60)
+    }
+}
+
+/// SESSION_RELOADING is the only broker error code that means "a Unity session
+/// matching this request is present but mid assembly-reload; the broker never
+/// wrote this request to it" (see broker.rs' `SelectedTarget::Reloading`
+/// path), so it is the only code safe to retry automatically here.
+///
+/// SESSION_NOT_FOUND is deliberately excluded even though the broker also
+/// never writes anything to Unity for it: it fires whenever there is no
+/// matching Unity session at all (Unity closed, wrong sessionId/workspace, or
+/// a pinned sessionId that really is gone after a full Unity restart), not
+/// just during a reload window (a session mid-reload reports
+/// SESSION_RELOADING instead, from the `SelectedTarget::Reloading` branch of
+/// `select_session`). Retrying it here would turn an immediate, correct
+/// "nothing to talk to" error into a mandatory 150s hang for every call made
+/// while Unity is simply not running -- including `patina_health` with
+/// `include_unity_state=true`.
+///
+/// Every other broker error (SESSION_RELOAD_INTERRUPTED, SESSION_UNAVAILABLE,
+/// SESSION_AMBIGUOUS, SESSION_WORKSPACE_MISMATCH) must never be retried by
+/// this loop either -- retrying could run a write command twice or mask a
+/// caller mistake.
+fn is_reload_retryable_code(code: &str) -> bool {
+    matches!(code, "SESSION_RELOADING")
 }
 
 fn is_transient_bridge_error(error: &str) -> bool {
@@ -476,6 +567,21 @@ mod tests {
         let body =
             serde_json::to_vec(&serde_json::json!({"id": id, "success": true, "result": {}}))
                 .unwrap();
+        stream
+            .write_all(&(body.len() as u32).to_le_bytes())
+            .await
+            .unwrap();
+        stream.write_all(&body).await.unwrap();
+        stream.flush().await.unwrap();
+    }
+    async fn write_error_response(stream: &mut TcpStream, id: String, code: &str, message: &str) {
+        let body = serde_json::to_vec(&serde_json::json!({
+            "id": id,
+            "success": false,
+            "result": null,
+            "error": {"code": code, "message": message}
+        }))
+        .unwrap();
         stream
             .write_all(&(body.len() as u32).to_le_bytes())
             .await
@@ -639,5 +745,167 @@ mod tests {
         assert!(response.success);
         server.await.unwrap();
         client.shutdown().await;
+    }
+
+    #[tokio::test]
+    async fn session_reloading_response_is_retried_until_session_returns() {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let client = BridgeClient::new(listener.local_addr().unwrap().port());
+        client.start().await;
+        let server = tokio::spawn(async move {
+            let (mut stream, _) = listener.accept().await.unwrap();
+            drain_hello(&mut stream).await;
+            let first_id = read_request_id(&mut stream).await;
+            write_error_response(
+                &mut stream,
+                first_id,
+                "SESSION_RELOADING",
+                "Unity is reloading assemblies after a script compile.",
+            )
+            .await;
+            let second_id = read_request_id(&mut stream).await;
+            write_response(&mut stream, second_id).await;
+        });
+        let response = tokio::time::timeout(
+            Duration::from_secs(5),
+            client.request("compile_and_get_errors", serde_json::json!({})),
+        )
+        .await
+        .unwrap()
+        .unwrap();
+        assert!(response.success);
+        server.await.unwrap();
+        client.shutdown().await;
+    }
+
+    #[tokio::test]
+    async fn session_reload_interrupted_response_is_not_retried() {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let client = BridgeClient::new(listener.local_addr().unwrap().port());
+        client.start().await;
+        let server = tokio::spawn(async move {
+            let (mut stream, _) = listener.accept().await.unwrap();
+            drain_hello(&mut stream).await;
+            let id = read_request_id(&mut stream).await;
+            write_error_response(
+                &mut stream,
+                id,
+                "SESSION_RELOAD_INTERRUPTED",
+                "Unity started an assembly reload while this command was running.",
+            )
+            .await;
+            // Nothing else should ever arrive on this connection: a retry here
+            // would mean the client resent a command that may have already run.
+            let mut probe = [0u8; 1];
+            let saw_more =
+                tokio::time::timeout(Duration::from_millis(300), stream.read(&mut probe)).await;
+            assert!(
+                saw_more.is_err(),
+                "client retried a response that must never be retried"
+            );
+        });
+        let response = tokio::time::timeout(
+            Duration::from_secs(2),
+            client.request("set_property", serde_json::json!({})),
+        )
+        .await
+        .unwrap()
+        .unwrap();
+        assert!(!response.success);
+        assert_eq!(response.error.unwrap().code, "SESSION_RELOAD_INTERRUPTED");
+        server.await.unwrap();
+        client.shutdown().await;
+    }
+
+    #[tokio::test]
+    async fn session_not_found_response_is_not_retried() {
+        // SESSION_NOT_FOUND fires whenever there is no matching Unity session at
+        // all (Unity closed, wrong workspace/sessionId, or a full restart), not
+        // just during a reload window -- a session mid-reload reports
+        // SESSION_RELOADING instead. Retrying this code would turn a correct,
+        // immediate "nothing to talk to" error into a mandatory ~150s hang for
+        // every call made while Unity simply is not running.
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let client = BridgeClient::new(listener.local_addr().unwrap().port());
+        client.start().await;
+        let server = tokio::spawn(async move {
+            let (mut stream, _) = listener.accept().await.unwrap();
+            drain_hello(&mut stream).await;
+            let id = read_request_id(&mut stream).await;
+            write_error_response(
+                &mut stream,
+                id,
+                "SESSION_NOT_FOUND",
+                "No matching Unity session. Call patina_sessions to see active workspaces, or provide workspace/sessionId.",
+            )
+            .await;
+            let mut probe = [0u8; 1];
+            let saw_more =
+                tokio::time::timeout(Duration::from_millis(300), stream.read(&mut probe)).await;
+            assert!(
+                saw_more.is_err(),
+                "client retried a response that must never be retried"
+            );
+        });
+        let response = tokio::time::timeout(
+            Duration::from_secs(2),
+            client.request("get_hierarchy", serde_json::json!({})),
+        )
+        .await
+        .unwrap()
+        .unwrap();
+        assert!(!response.success);
+        assert_eq!(response.error.unwrap().code, "SESSION_NOT_FOUND");
+        server.await.unwrap();
+        client.shutdown().await;
+    }
+
+    #[tokio::test]
+    async fn session_unavailable_response_is_not_retried() {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let client = BridgeClient::new(listener.local_addr().unwrap().port());
+        client.start().await;
+        let server = tokio::spawn(async move {
+            let (mut stream, _) = listener.accept().await.unwrap();
+            drain_hello(&mut stream).await;
+            let id = read_request_id(&mut stream).await;
+            write_error_response(
+                &mut stream,
+                id,
+                "SESSION_UNAVAILABLE",
+                "The selected Unity session disconnected.",
+            )
+            .await;
+            let mut probe = [0u8; 1];
+            let saw_more =
+                tokio::time::timeout(Duration::from_millis(300), stream.read(&mut probe)).await;
+            assert!(
+                saw_more.is_err(),
+                "client retried a response that must never be retried"
+            );
+        });
+        let response = tokio::time::timeout(
+            Duration::from_secs(2),
+            client.request("get_editor_state", serde_json::json!({})),
+        )
+        .await
+        .unwrap()
+        .unwrap();
+        assert!(!response.success);
+        assert_eq!(response.error.unwrap().code, "SESSION_UNAVAILABLE");
+        server.await.unwrap();
+        client.shutdown().await;
+    }
+
+    #[test]
+    fn long_running_commands_get_extended_request_timeout() {
+        for command in LONG_RUNNING_COMMANDS {
+            assert_eq!(request_timeout_for(command), Duration::from_secs(180));
+        }
+        assert_eq!(
+            request_timeout_for("get_editor_state"),
+            Duration::from_secs(60)
+        );
+        assert_eq!(request_timeout_for("set_property"), Duration::from_secs(60));
     }
 }

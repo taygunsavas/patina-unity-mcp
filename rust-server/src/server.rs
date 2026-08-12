@@ -36,7 +36,10 @@ pub struct PatinaCapabilitiesArgs {
 pub struct PatinaCallArgs {
     /// Internal Patina command name returned by patina_capabilities.
     pub command: String,
-    /// JSON parameters for the command. Pass {} for commands with no parameters.
+    /// JSON parameters for the command. Pass {} (or omit) for commands with no
+    /// parameters. A JSON-object-encoded string (e.g. "{\"x\":1}") is also
+    /// accepted and parsed; null or an empty/whitespace string is treated as {}.
+    /// Any other type (number, bool, array, non-object string) is rejected.
     #[serde(default = "default_parameters")]
     pub parameters: Value,
     /// Optional canonical workspace path. Defaults to this MCP process working directory.
@@ -52,6 +55,49 @@ pub struct PatinaSessionsArgs {}
 
 fn default_parameters() -> Value {
     json!({})
+}
+
+/// Normalizes `patina_call`'s `parameters` field before it is forwarded to the
+/// Unity bridge. Different MCP clients serialize an omitted/empty params
+/// object differently (null, an empty string, a JSON-encoded string, etc.),
+/// so this coerces the accepted shapes into a plain JSON object and rejects
+/// anything else with an actionable error instead of forwarding garbage to
+/// the bridge, where it would otherwise crash the connection (see #84).
+fn normalize_parameters(value: Value) -> Result<Value, String> {
+    match value {
+        Value::Null => Ok(json!({})),
+        Value::Object(_) => Ok(value),
+        Value::String(s) => {
+            if s.trim().is_empty() {
+                return Ok(json!({}));
+            }
+            match serde_json::from_str::<Value>(&s) {
+                Ok(Value::Object(map)) => Ok(Value::Object(map)),
+                Ok(other) => Err(format!(
+                    "Invalid parameters: string parsed as JSON {} but a JSON object is required.",
+                    value_type_name(&other)
+                )),
+                Err(e) => Err(format!(
+                    "Invalid parameters: string is not valid JSON ({e}). Pass a JSON object, e.g. {{}}."
+                )),
+            }
+        }
+        other => Err(format!(
+            "Invalid parameters: got JSON {} but a JSON object (e.g. {{}}) is required.",
+            value_type_name(&other)
+        )),
+    }
+}
+
+fn value_type_name(value: &Value) -> &'static str {
+    match value {
+        Value::Null => "null",
+        Value::Bool(_) => "boolean",
+        Value::Number(_) => "number",
+        Value::String(_) => "string",
+        Value::Array(_) => "array",
+        Value::Object(_) => "object",
+    }
 }
 
 #[derive(Debug, Deserialize, Serialize, JsonSchema)]
@@ -171,10 +217,9 @@ impl UnityMcpServer {
             ))]));
         }
 
-        let parameters = if args.parameters.is_null() {
-            json!({})
-        } else {
-            args.parameters
+        let parameters = match normalize_parameters(args.parameters) {
+            Ok(value) => value,
+            Err(message) => return Ok(CallToolResult::error(vec![ContentBlock::text(message)])),
         };
 
         self.call_bridge_targeted(
@@ -188,7 +233,7 @@ impl UnityMcpServer {
 
     #[tool(
         name = "patina_sessions",
-        description = "List active Unity sessions registered with the shared Patina broker, including workspace paths and health."
+        description = "List active Unity sessions registered with the shared Patina broker, including workspace paths, health, state (connected|reloading|stale), and reloadCount. Check state=\"reloading\" before assuming a failed call means Unity disconnected -- it may just be recompiling."
     )]
     async fn patina_sessions(
         &self,
@@ -200,7 +245,7 @@ impl UnityMcpServer {
 
     #[tool(
         name = "patina_health",
-        description = "Return Patina server version, compact MCP surface status, bridge port, command count, and optionally Unity editor state or bridge diagnostics."
+        description = "Return Patina server version, compact MCP surface status, bridge port, command count, and a broker summary (agentClientCount, unitySessionCount counting both connected and reloading sessions, reloadingSessionCount, and per-session detail). Pass include_unity_state=true to prove the routed Unity session is actually responding, not just registered."
     )]
     async fn patina_health(
         &self,
@@ -274,5 +319,79 @@ impl ServerHandler for UnityMcpServer {
         info.instructions = Some(SERVER_INSTRUCTIONS.into());
         info.capabilities = ServerCapabilities::builder().enable_tools().build();
         info
+    }
+}
+
+#[cfg(test)]
+mod normalize_parameters_tests {
+    use super::normalize_parameters;
+    use serde_json::json;
+
+    #[test]
+    fn null_becomes_empty_object() {
+        assert_eq!(normalize_parameters(json!(null)).unwrap(), json!({}));
+    }
+
+    #[test]
+    fn object_passes_through_unchanged() {
+        let value = json!({"x": 1, "y": "z"});
+        assert_eq!(normalize_parameters(value.clone()).unwrap(), value);
+    }
+
+    #[test]
+    fn valid_json_object_string_is_parsed() {
+        let value = json!("{\"x\": 1}");
+        assert_eq!(normalize_parameters(value).unwrap(), json!({"x": 1}));
+    }
+
+    #[test]
+    fn empty_object_string_is_parsed() {
+        assert_eq!(normalize_parameters(json!("{}")).unwrap(), json!({}));
+    }
+
+    #[test]
+    fn empty_string_becomes_empty_object() {
+        assert_eq!(normalize_parameters(json!("")).unwrap(), json!({}));
+    }
+
+    #[test]
+    fn whitespace_only_string_becomes_empty_object() {
+        assert_eq!(normalize_parameters(json!("   ")).unwrap(), json!({}));
+    }
+
+    #[test]
+    fn invalid_json_string_is_rejected() {
+        let err = normalize_parameters(json!("not json")).unwrap_err();
+        assert!(err.contains("not valid JSON"), "unexpected message: {err}");
+    }
+
+    #[test]
+    fn number_is_rejected() {
+        let err = normalize_parameters(json!(42)).unwrap_err();
+        assert!(err.contains("number"), "unexpected message: {err}");
+    }
+
+    #[test]
+    fn bool_is_rejected() {
+        let err = normalize_parameters(json!(true)).unwrap_err();
+        assert!(err.contains("boolean"), "unexpected message: {err}");
+    }
+
+    #[test]
+    fn array_is_rejected() {
+        let err = normalize_parameters(json!([1, 2, 3])).unwrap_err();
+        assert!(err.contains("array"), "unexpected message: {err}");
+    }
+
+    #[test]
+    fn json_string_parsing_to_array_is_rejected() {
+        let err = normalize_parameters(json!("[1,2,3]")).unwrap_err();
+        assert!(err.contains("array"), "unexpected message: {err}");
+    }
+
+    #[test]
+    fn json_string_parsing_to_scalar_is_rejected() {
+        let err = normalize_parameters(json!("42")).unwrap_err();
+        assert!(err.contains("number"), "unexpected message: {err}");
     }
 }
