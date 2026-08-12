@@ -395,7 +395,8 @@ impl BridgeClient {
             command: command.to_string(),
             params: params.clone(),
         };
-        let payload = serde_json::to_vec(&serde_json::json!({"type":"request", "workspace":workspace.unwrap_or(&self.workspace), "sessionId":session_id, "request":request}))
+        let envelope_workspace = envelope_workspace(&self.workspace, workspace, session_id);
+        let payload = serde_json::to_vec(&serde_json::json!({"type":"request", "workspace":envelope_workspace, "sessionId":session_id, "request":request}))
         .map_err(|error| format!("Serialize error: {}", error))?;
         let (sender, receiver) = oneshot::channel();
         self.pending.insert(id.clone(), sender);
@@ -449,6 +450,24 @@ const LONG_RUNNING_COMMANDS: [&str; 9] = [
     "validate_assets",
     "create_script",
 ];
+
+/// Which workspace, if any, to put on the envelope. The MCP process working
+/// directory is a *default target*, not a constraint: sent alongside an explicit
+/// `session_id` it makes the broker cross-check a workspace the caller never
+/// asked for and return SESSION_WORKSPACE_MISMATCH (issue #92). An explicit
+/// workspace is always forwarded, so a caller supplying both still gets the
+/// mismatch check.
+fn envelope_workspace<'a>(
+    default_workspace: &'a str,
+    workspace: Option<&'a str>,
+    session_id: Option<&str>,
+) -> Option<&'a str> {
+    match (workspace, session_id) {
+        (Some(explicit), _) => Some(explicit),
+        (None, Some(_)) => None,
+        (None, None) => Some(default_workspace),
+    }
+}
 
 fn request_timeout_for(command: &str) -> Duration {
     if LONG_RUNNING_COMMANDS.contains(&command) {
@@ -552,6 +571,13 @@ mod tests {
             .as_str()
             .unwrap()
             .to_string()
+    }
+    async fn read_request_envelope(stream: &mut TcpStream) -> serde_json::Value {
+        let mut header = [0; 4];
+        stream.read_exact(&mut header).await.unwrap();
+        let mut body = vec![0; u32::from_le_bytes(header) as usize];
+        stream.read_exact(&mut body).await.unwrap();
+        serde_json::from_slice(&body).unwrap()
     }
     async fn drain_hello(stream: &mut TcpStream) {
         let mut header = [0; 4];
@@ -907,5 +933,106 @@ mod tests {
             Duration::from_secs(60)
         );
         assert_eq!(request_timeout_for("set_property"), Duration::from_secs(60));
+    }
+
+    #[test]
+    fn envelope_workspace_applies_default_only_without_session_id() {
+        assert_eq!(
+            envelope_workspace("D:/default", None, None),
+            Some("D:/default")
+        );
+        assert_eq!(envelope_workspace("D:/default", None, Some("sess")), None);
+        assert_eq!(
+            envelope_workspace("D:/default", Some("D:/other"), None),
+            Some("D:/other")
+        );
+        assert_eq!(
+            envelope_workspace("D:/default", Some("D:/other"), Some("sess")),
+            Some("D:/other")
+        );
+    }
+
+    #[tokio::test]
+    async fn session_id_without_workspace_omits_default_workspace_from_envelope() {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let client = BridgeClient::new(listener.local_addr().unwrap().port());
+        client.start().await;
+        let server = tokio::spawn(async move {
+            let (mut stream, _) = listener.accept().await.unwrap();
+            drain_hello(&mut stream).await;
+            let envelope = read_request_envelope(&mut stream).await;
+            assert!(envelope["workspace"].is_null());
+            assert_eq!(envelope["sessionId"], "sess-1");
+            let id = envelope["request"]["id"].as_str().unwrap().to_string();
+            write_response(&mut stream, id).await;
+        });
+        let response = tokio::time::timeout(
+            Duration::from_secs(5),
+            client.request_targeted("test", serde_json::json!({}), None, Some("sess-1")),
+        )
+        .await
+        .unwrap()
+        .unwrap();
+        assert!(response.success);
+        server.await.unwrap();
+        client.shutdown().await;
+    }
+
+    #[tokio::test]
+    async fn explicit_workspace_with_session_id_is_forwarded_unchanged() {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let client = BridgeClient::new(listener.local_addr().unwrap().port());
+        client.start().await;
+        let server = tokio::spawn(async move {
+            let (mut stream, _) = listener.accept().await.unwrap();
+            drain_hello(&mut stream).await;
+            let envelope = read_request_envelope(&mut stream).await;
+            assert_eq!(envelope["workspace"], "D:/other");
+            assert_eq!(envelope["sessionId"], "sess-1");
+            let id = envelope["request"]["id"].as_str().unwrap().to_string();
+            write_response(&mut stream, id).await;
+        });
+        let response = tokio::time::timeout(
+            Duration::from_secs(5),
+            client.request_targeted(
+                "test",
+                serde_json::json!({}),
+                Some("D:/other"),
+                Some("sess-1"),
+            ),
+        )
+        .await
+        .unwrap()
+        .unwrap();
+        assert!(response.success);
+        server.await.unwrap();
+        client.shutdown().await;
+    }
+
+    #[tokio::test]
+    async fn untargeted_request_still_sends_default_workspace() {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let client = BridgeClient::new(listener.local_addr().unwrap().port());
+        let default_workspace = client.workspace().to_string();
+        client.start().await;
+        let server = tokio::spawn(async move {
+            let (mut stream, _) = listener.accept().await.unwrap();
+            drain_hello(&mut stream).await;
+            let envelope = read_request_envelope(&mut stream).await;
+            assert_eq!(envelope["workspace"], default_workspace);
+            assert!(envelope["sessionId"].is_null());
+            let id = envelope["request"]["id"].as_str().unwrap().to_string();
+            write_response(&mut stream, id).await;
+        });
+        let response = tokio::time::timeout(
+            Duration::from_secs(5),
+            client.request("test", serde_json::json!({})),
+        )
+        .await
+        .unwrap()
+        .unwrap();
+        assert!(response.success);
+        server.await.unwrap();
+        client.shutdown().await;
     }
 }
