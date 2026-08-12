@@ -1528,6 +1528,109 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn tcp_session_id_without_workspace_selects_session_across_workspaces() {
+        // Regression for #92: a sessionId alone must resolve a session even when
+        // the calling agent's own workspace points somewhere else entirely.
+        let (address, broker) = start_broker(test_config()).await;
+        let unity_b = connect_unity(address, "b", "E:/Projects/B", Some("responsive")).await;
+        let (mut reader, mut writer) = connect_agent(address, "E:/Projects/A").await;
+        wait_for_sessions(&mut reader, &mut writer, 1).await;
+        request(
+            &mut writer,
+            "cross-workspace",
+            "get_hierarchy",
+            None,
+            Some("b"),
+        )
+        .await;
+        let response = read_json(&mut reader).await.unwrap().unwrap();
+        assert_eq!(response["id"], "cross-workspace");
+        assert_eq!(response["result"]["command"], "get_hierarchy");
+        unity_b.abort();
+        broker.abort();
+    }
+
+    #[tokio::test]
+    async fn bridge_client_session_id_routes_to_a_foreign_workspace_session() {
+        // End-to-end repro of #92: the BridgeClient's own default workspace
+        // ("E:/Projeler/patina-unity-mcp") differs from the Unity session's
+        // workspace ("D:/Projeler/Game-Template"). Before the fix, `do_request`
+        // always filled in the default workspace, which made the broker reject
+        // the sessionId-only request with SESSION_WORKSPACE_MISMATCH.
+        let (address, broker) = start_broker(test_config()).await;
+        let unity = connect_unity(
+            address,
+            "sess-1",
+            "D:/Projeler/Game-Template",
+            Some("responsive"),
+        )
+        .await;
+        // Wait for the session to actually register before issuing the
+        // sessionId-only request -- SESSION_NOT_FOUND is not retried by the
+        // client, so a registration race here would surface the wrong code
+        // (and mask the mismatch this test exists to catch).
+        let (mut probe_reader, mut probe_writer) =
+            connect_agent(address, "E:/Projeler/patina-unity-mcp").await;
+        wait_for_sessions(&mut probe_reader, &mut probe_writer, 1).await;
+
+        let client = crate::bridge::BridgeClient::new_with_workspace(
+            address.port(),
+            "E:/Projeler/patina-unity-mcp".to_string(),
+        );
+        client.start().await;
+
+        let response = client
+            .request_targeted("get_hierarchy", json!({}), None, Some("sess-1"))
+            .await
+            .unwrap();
+
+        assert!(response.success, "response: {:?}", response);
+        assert_eq!(response.result.unwrap()["command"], "get_hierarchy");
+        client.shutdown().await;
+        unity.abort();
+        broker.abort();
+    }
+
+    #[tokio::test]
+    async fn bridge_client_conflicting_workspace_and_session_id_still_reports_mismatch() {
+        let (address, broker) = start_broker(test_config()).await;
+        let unity = connect_unity(
+            address,
+            "sess-1",
+            "D:/Projeler/Game-Template",
+            Some("responsive"),
+        )
+        .await;
+        // Wait for the session to actually register before issuing the
+        // conflicting request -- SESSION_NOT_FOUND is not retried by the
+        // client, so a registration race here would surface the wrong code.
+        let (mut probe_reader, mut probe_writer) =
+            connect_agent(address, "E:/Projeler/patina-unity-mcp").await;
+        wait_for_sessions(&mut probe_reader, &mut probe_writer, 1).await;
+
+        let client = crate::bridge::BridgeClient::new_with_workspace(
+            address.port(),
+            "E:/Projeler/patina-unity-mcp".to_string(),
+        );
+        client.start().await;
+
+        let response = client
+            .request_targeted(
+                "get_hierarchy",
+                json!({}),
+                Some("E:/Projeler/patina-unity-mcp"),
+                Some("sess-1"),
+            )
+            .await
+            .unwrap();
+        assert!(!response.success);
+        assert_eq!(response.error.unwrap().code, "SESSION_WORKSPACE_MISMATCH");
+        client.shutdown().await;
+        unity.abort();
+        broker.abort();
+    }
+
+    #[tokio::test]
     async fn tcp_concurrent_requests_do_not_mix_response_ids() {
         let (address, broker) = start_broker(test_config()).await;
         let unity_a = connect_unity(address, "a", "E:/Projects/A", Some("responsive")).await;

@@ -46,10 +46,10 @@ pub struct PatinaCallArgs {
     #[serde(default = "default_parameters")]
     #[schemars(with = "serde_json::Map<String, Value>")]
     pub parameters: Value,
-    /// Optional canonical workspace path. Defaults to this MCP process working directory.
+    /// Canonical absolute path to the Unity project root. Omit to fall back to this MCP process working directory, which applies only when sessionId is also omitted; supplied together with sessionId, both must resolve to the same session.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub workspace: Option<String>,
-    /// Optional exact Unity session ID. Required when a workspace has multiple open editors.
+    /// Optional exact Unity session ID from patina_sessions. Sufficient on its own -- the default workspace is not applied as a constraint. Required when one workspace has multiple open editors.
     #[serde(rename = "sessionId", skip_serializing_if = "Option::is_none")]
     pub session_id: Option<String>,
 }
@@ -208,7 +208,7 @@ impl UnityMcpServer {
 
     #[tool(
         name = "patina_call",
-        description = "Execute an internal Patina Unity command. Defaults to the agent working-directory workspace; optionally target another workspace or sessionId."
+        description = "Execute an internal Patina Unity command. Targets the agent working-directory workspace by default; pass workspace to target a different project, or sessionId (from patina_sessions) to target one editor directly."
     )]
     async fn patina_call(
         &self,
