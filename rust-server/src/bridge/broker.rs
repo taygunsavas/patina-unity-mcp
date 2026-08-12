@@ -1131,7 +1131,13 @@ mod tests {
         writer: &mut OwnedWriteHalf,
         session_id: &str,
     ) -> Value {
-        for attempt in 0..30 {
+        // Polls up to a ~3s deadline (200 attempts * 15ms). The condition is
+        // checked on every attempt, so a fast/idle runner still returns almost
+        // immediately -- the generous ceiling only matters when the test
+        // process is starved of CPU by other concurrently-running tests on a
+        // loaded CI host, where a tight deadline previously caused spurious
+        // timeouts unrelated to the broker logic being tested.
+        for attempt in 0..200 {
             request(
                 writer,
                 &format!("resume-check-{attempt}"),
@@ -1148,7 +1154,7 @@ mod tests {
                     }
                 }
             }
-            tokio::time::sleep(Duration::from_millis(5)).await;
+            tokio::time::sleep(Duration::from_millis(15)).await;
         }
         panic!("Timed out waiting for session {session_id} to resume from reload");
     }
@@ -1221,7 +1227,10 @@ mod tests {
         writer: &mut OwnedWriteHalf,
         expected: usize,
     ) -> Value {
-        for attempt in 0..30 {
+        // See the comment on `wait_for_resumed`: ~3s deadline (200 * 15ms) to
+        // absorb CPU starvation on a loaded CI runner without slowing down the
+        // common case, which returns as soon as the condition first holds.
+        for attempt in 0..200 {
             request(
                 writer,
                 &format!("sessions-{attempt}"),
@@ -1234,7 +1243,7 @@ mod tests {
             if value["result"].as_array().map_or(0, Vec::len) == expected {
                 return value;
             }
-            tokio::time::sleep(Duration::from_millis(10)).await;
+            tokio::time::sleep(Duration::from_millis(15)).await;
         }
         panic!("did not observe {expected} sessions")
     }
@@ -1245,7 +1254,10 @@ mod tests {
         session_id: &str,
         expected_status: &str,
     ) -> Value {
-        for attempt in 0..30 {
+        // See the comment on `wait_for_resumed`: ~3s deadline (200 * 15ms) to
+        // absorb CPU starvation on a loaded CI runner without slowing down the
+        // common case, which returns as soon as the condition first holds.
+        for attempt in 0..200 {
             request(
                 writer,
                 &format!("session-status-{attempt}"),
@@ -1266,7 +1278,7 @@ mod tests {
             {
                 return value;
             }
-            tokio::time::sleep(Duration::from_millis(5)).await;
+            tokio::time::sleep(Duration::from_millis(15)).await;
         }
         panic!("Timed out waiting for session {session_id} to become {expected_status}");
     }
@@ -2171,6 +2183,31 @@ mod tests {
         assert!(!finalize_dispatch(&state, "req-1", &session, "Unity session write failed.").await);
     }
 
+    /// Guards the `SelectedTarget::Live` dispatch arm's post-write
+    /// `else if !session_still_registered(...)` check: if that check is ever
+    /// removed or broken, a request whose session gets parked/replaced *between*
+    /// the successful `write_json` to Unity and this re-check would sit forever
+    /// with no error and no result (see `dispatch_after_successful_write_fails_when_session_was_parked`
+    /// below for the deterministic, helper-level regression test of the same
+    /// logic -- that one calls `session_still_registered`/`finalize_dispatch`
+    /// directly and stays green even if the `handle_connection` dispatch arm
+    /// itself is broken, which is why this end-to-end test exists too).
+    ///
+    /// Ignored by default: this test races two real OS threads (a fresh
+    /// `get_editor_state` request against a fresh `unregister`) up to 500 times
+    /// to try to land the exact interleaving, because there is no externally
+    /// observable "in progress" signal to synchronize on -- both sides are
+    /// ordinary, fast async operations, and on the machine this was written on
+    /// even a near-MAX_FRAME_BYTES forwarded write completed synchronously, so
+    /// there is no reliable way to force a suspension point. On CI (ubuntu
+    /// runner, 2026-08-12, PR #91) the race was never observed in 500 attempts
+    /// and the test ran for ~87s pegging 4 worker threads, which starved
+    /// neighboring tests' millisecond-scale polling deadlines and caused an
+    /// unrelated, unreproducible failure in `reload_grace_expiry_fails_held_requests`.
+    /// Anyone changing the `SelectedTarget::Live` dispatch arm must run this
+    /// test manually (it is not part of `cargo test` or CI):
+    ///   cargo test -- --ignored agent_request_fails_when_session_is_parked_immediately_after_successful_dispatch_write
+    #[ignore]
     #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
     async fn agent_request_fails_when_session_is_parked_immediately_after_successful_dispatch_write(
     ) {
