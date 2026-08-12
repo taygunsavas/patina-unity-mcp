@@ -68,6 +68,24 @@ pub fn command_count() -> usize {
     COMMANDS.len()
 }
 
+/// True when `command` is safe to hold and automatically replay against a Unity
+/// session that is mid assembly-reload. Deliberately conservative: only reads
+/// (and the three compile/refresh triggers, which are themselves idempotent)
+/// qualify. Every command that mutates project or scene state must fail fast
+/// with `SESSION_RELOADING` instead of being replayed, or a write could apply
+/// twice.
+pub fn is_reload_replay_safe(command: &str) -> bool {
+    matches!(
+        command,
+        "compile_and_get_errors" | "force_recompile" | "refresh_asset_database"
+    ) || command.starts_with("get_")
+        || command.starts_with("find_")
+        || command.starts_with("list_")
+        || command.starts_with("query_")
+        || command.starts_with("resolve_")
+        || command.starts_with("validate_")
+}
+
 pub fn find_command(name: &str) -> Option<&'static CommandSpec> {
     COMMANDS.iter().find(|command| command.name == name)
 }

@@ -188,7 +188,7 @@ impl UnityMcpServer {
 
     #[tool(
         name = "patina_sessions",
-        description = "List active Unity sessions registered with the shared Patina broker, including workspace paths and health."
+        description = "List active Unity sessions registered with the shared Patina broker, including workspace paths, health, state (connected|reloading|stale), and reloadCount. Check state=\"reloading\" before assuming a failed call means Unity disconnected -- it may just be recompiling."
     )]
     async fn patina_sessions(
         &self,
@@ -200,7 +200,7 @@ impl UnityMcpServer {
 
     #[tool(
         name = "patina_health",
-        description = "Return Patina server version, compact MCP surface status, bridge port, command count, and optionally Unity editor state or bridge diagnostics."
+        description = "Return Patina server version, compact MCP surface status, bridge port, command count, and a broker summary (agentClientCount, unitySessionCount counting both connected and reloading sessions, reloadingSessionCount, and per-session detail). Pass include_unity_state=true to prove the routed Unity session is actually responding, not just registered."
     )]
     async fn patina_health(
         &self,
