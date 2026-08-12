@@ -1939,7 +1939,17 @@ mod tests {
     #[tokio::test]
     async fn reload_grace_expiry_fails_held_requests() {
         let mut config = test_config();
-        config.reload_grace = Duration::from_millis(60);
+        // Must stay short enough that the test doesn't take forever waiting for
+        // expiry, but long enough that a loaded/slow CI runner can still poll
+        // and observe the intermediate "reloading" state (via
+        // `wait_for_session_status` below) *before* `expire_reload_grace` sweeps
+        // it away. 60ms was too tight -- the first polling round-trip alone
+        // could exceed it under CPU contention, so the test would time out
+        // waiting for a state it could never observe. 1500ms gives a slow
+        // runner generous headroom while still keeping the test itself fast in
+        // the common case (it doesn't wait for the full duration -- it reads
+        // the resulting error responses).
+        config.reload_grace = Duration::from_millis(1500);
         let (address, broker) = start_broker(config).await;
         let (mut unity_reader, mut unity_writer) =
             connect_unity_raw(address, "a", "E:/Projects/A", 7, 0).await;
@@ -1975,10 +1985,14 @@ mod tests {
         )
         .await;
 
+        // Longer than `reload_grace` plus a generous margin, so this doesn't
+        // race the expiry sweep itself on a slow runner: the sweep only fires
+        // after `reload_grace` elapses, and the response has to be read after
+        // that.
         let mut responses = std::collections::HashMap::new();
         for _ in 0..2 {
             let response =
-                tokio::time::timeout(Duration::from_millis(500), read_json(&mut agent_reader))
+                tokio::time::timeout(Duration::from_secs(5), read_json(&mut agent_reader))
                     .await
                     .unwrap()
                     .unwrap()
