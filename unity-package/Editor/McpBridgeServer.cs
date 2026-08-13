@@ -883,7 +883,8 @@ namespace Patina.Editor
                         .PackageManager.PackageInfo.FindForAssembly(
                             typeof(McpBridgeServer).Assembly
                         )
-                        ?.version ?? "unknown",
+                        ?.version
+                    ?? "unknown",
             };
         }
 
