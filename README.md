@@ -291,7 +291,12 @@ cd rust-server && cargo build --release
 ```
 3. Publish the current binary into the local development runtime path.
 ```powershell
+# Windows
 pwsh -File scripts/publish-dev-runtime.ps1
+```
+```bash
+# macOS / Linux
+./scripts/publish-dev-runtime.sh
 ```
 4. In Unity, open **Window > Patina Unity MCP**, enable **Use Local Runtime (Contributor)**, and click **One-Click Setup**.
 

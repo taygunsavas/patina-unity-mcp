@@ -33,22 +33,81 @@ function Get-BinaryExtension {
 $binaryExtension = Get-BinaryExtension
 $platformDirectory = Get-PlatformDirectory
 
+# Relative paths are resolved against the repository root, not the caller's working
+# directory, so the script publishes to the location Unity probes no matter where it is
+# invoked from. Keep this in sync with publish-dev-runtime.sh.
+$repositoryRoot = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
+
+function Resolve-AgainstRepositoryRoot([string]$Path) {
+    if ([System.IO.Path]::IsPathRooted($Path)) {
+        return $Path
+    }
+
+    return Join-Path $repositoryRoot $Path
+}
+
 if ([string]::IsNullOrWhiteSpace($BinaryPath)) {
     $BinaryPath = Join-Path "rust-server/target/release" ("patina-server" + $binaryExtension)
 }
+
+$BinaryPath = Resolve-AgainstRepositoryRoot $BinaryPath
 
 if (-not (Test-Path $BinaryPath)) {
     throw "Server binary not found: $BinaryPath"
 }
 
 $resolvedBinary = (Resolve-Path $BinaryPath).Path
-$outputDirectory = Join-Path $OutputRoot $platformDirectory
-$resolvedOutputDirectory = Join-Path (Get-Location) $outputDirectory
+$resolvedOutputDirectory = Join-Path (Resolve-AgainstRepositoryRoot $OutputRoot) $platformDirectory
 
 New-Item -ItemType Directory -Force -Path $resolvedOutputDirectory | Out-Null
 
 $destinationPath = Join-Path $resolvedOutputDirectory ("patina-server" + $binaryExtension)
-Copy-Item -Path $resolvedBinary -Destination $destinationPath -Force
+
+# Publish through a temporary file, move any existing binary aside, then move the new
+# one into place. Writing over the destination keeps its inode; on macOS that
+# invalidates the kernel's code-signing pages for a binary an MCP host is still
+# running, and every later exec() of that path is SIGKILLed (exit 137). See issue #99.
+# Move-Item -Force is not a rename when the destination exists -- PowerShell deletes the
+# destination first -- so the old file is renamed out of the way explicitly instead. That
+# also keeps the destination from ever being briefly absent, and lets the publish succeed
+# on Windows while a host still holds the running .exe open.
+$temporaryPath = $destinationPath + ".tmp-" + [System.Guid]::NewGuid().ToString("N")
+$backupPath = $destinationPath + ".old-" + [System.Guid]::NewGuid().ToString("N")
+$movedAside = $false
+
+try {
+    Copy-Item -Path $resolvedBinary -Destination $temporaryPath -Force
+
+    if (Test-Path $destinationPath) {
+        Move-Item -Path $destinationPath -Destination $backupPath
+        $movedAside = $true
+    }
+
+    Move-Item -Path $temporaryPath -Destination $destinationPath
+
+    if ($movedAside) {
+        Remove-Item -Path $backupPath -Force -ErrorAction SilentlyContinue
+        if (Test-Path $backupPath) {
+            Write-Warning "Could not remove the previous runtime at $backupPath. Delete it manually once no host is using it."
+        }
+    }
+}
+catch {
+    if ($movedAside -and -not (Test-Path $destinationPath)) {
+        Move-Item -Path $backupPath -Destination $destinationPath -ErrorAction SilentlyContinue
+
+        if (-not (Test-Path $destinationPath)) {
+            Write-Warning "Publish failed and the previous runtime could not be restored. A working copy is still at $backupPath -- rename it back to $destinationPath manually."
+        }
+    }
+
+    throw
+}
+finally {
+    if (Test-Path $temporaryPath) {
+        Remove-Item -Path $temporaryPath -Force -ErrorAction SilentlyContinue
+    }
+}
 
 Write-Host "Development runtime published:"
 Write-Host "  Source      : $resolvedBinary"

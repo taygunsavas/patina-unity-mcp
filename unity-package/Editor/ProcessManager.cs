@@ -15,6 +15,15 @@ namespace Patina.Editor
         private const string LocalRuntimeOverridePrefsKey = "Patina.LocalRuntimeOverride";
         private const string LegacyDevelopmentModePrefsKey = "Patina.DevelopmentMode";
 
+        // The managed runtime directory is shared by every Unity editor instance on the
+        // machine, and CleanupStaleRuntimeArtifacts can run concurrently with another editor's
+        // in-flight TryCopyManagedRuntime swap. Artifacts are stamped with the current time when
+        // they're created (see TryCopyManagedRuntime), not left with a copied/moved-over source
+        // mtime, so this threshold measures real artifact age. Only sweep artifacts old enough
+        // that they can no longer belong to a swap in progress, so a fresh ".tmp-"/".old-" file
+        // another editor is actively using is never touched.
+        private static readonly TimeSpan s_staleRuntimeArtifactAge = TimeSpan.FromHours(1);
+
         private static string s_lastManagedRuntimeError = string.Empty;
         private static bool s_loggedManagedRuntimeLockedWarning;
 
@@ -22,7 +31,7 @@ namespace Patina.Editor
         {
             Packaged,
             Contributor,
-            Missing
+            Missing,
         }
 
         public static bool IsLocalRuntimeOverrideRequested
@@ -32,7 +41,10 @@ namespace Patina.Editor
                 if (UnityEditor.EditorPrefs.HasKey(LocalRuntimeOverridePrefsKey))
                     return UnityEditor.EditorPrefs.GetBool(LocalRuntimeOverridePrefsKey, false);
 
-                bool legacyValue = UnityEditor.EditorPrefs.GetBool(LegacyDevelopmentModePrefsKey, false);
+                bool legacyValue = UnityEditor.EditorPrefs.GetBool(
+                    LegacyDevelopmentModePrefsKey,
+                    false
+                );
                 UnityEditor.EditorPrefs.SetBool(LocalRuntimeOverridePrefsKey, legacyValue);
                 UnityEditor.EditorPrefs.DeleteKey(LegacyDevelopmentModePrefsKey);
                 return legacyValue;
@@ -78,7 +90,7 @@ namespace Patina.Editor
                         FileName = "chmod",
                         Arguments = "+x \"" + binaryPath + "\"",
                         UseShellExecute = false,
-                        CreateNoWindow = true
+                        CreateNoWindow = true,
                     };
                     using (var process = System.Diagnostics.Process.Start(startInfo))
                     {
@@ -88,7 +100,9 @@ namespace Patina.Editor
             }
             catch (Exception ex)
             {
-                UnityEngine.Debug.LogWarning($"[Patina] Failed to set executable permission on {binaryPath}: {ex.Message}");
+                UnityEngine.Debug.LogWarning(
+                    $"[Patina] Failed to set executable permission on {binaryPath}: {ex.Message}"
+                );
             }
         }
 #endif
@@ -100,7 +114,13 @@ namespace Patina.Editor
             return Path.Combine(appData, "Claude", "claude_desktop_config.json");
 #elif UNITY_EDITOR_OSX
             string home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
-            return Path.Combine(home, "Library", "Application Support", "Claude", "claude_desktop_config.json");
+            return Path.Combine(
+                home,
+                "Library",
+                "Application Support",
+                "Claude",
+                "claude_desktop_config.json"
+            );
 #else
             string home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
             return Path.Combine(home, ".config", "Claude", "claude_desktop_config.json");
@@ -116,15 +136,22 @@ namespace Patina.Editor
 
         public static string GetManagedRuntimeLocation()
         {
-            return Path.Combine(GetManagedRuntimeDirectory(), ServerBinaryName + GetBinaryExtension());
+            return Path.Combine(
+                GetManagedRuntimeDirectory(),
+                ServerBinaryName + GetBinaryExtension()
+            );
         }
 
         public static RuntimeSourceKind GetRuntimeSourceKind()
         {
             if (IsLocalRuntimeOverrideEnabled)
-                return TryGetContributorRuntimePath(out _) ? RuntimeSourceKind.Contributor : RuntimeSourceKind.Missing;
+                return TryGetContributorRuntimePath(out _)
+                    ? RuntimeSourceKind.Contributor
+                    : RuntimeSourceKind.Missing;
 
-            return TryGetManagedPackagedRuntimePath(out _) ? RuntimeSourceKind.Packaged : RuntimeSourceKind.Missing;
+            return TryGetManagedPackagedRuntimePath(out _)
+                ? RuntimeSourceKind.Packaged
+                : RuntimeSourceKind.Missing;
         }
 
         public static string GetRuntimeSourceLabel()
@@ -136,7 +163,9 @@ namespace Patina.Editor
                 case RuntimeSourceKind.Contributor:
                     return "Contributor runtime";
                 default:
-                    return IsLocalRuntimeOverrideRequested ? "Missing contributor runtime" : "Missing packaged runtime";
+                    return IsLocalRuntimeOverrideRequested
+                        ? "Missing contributor runtime"
+                        : "Missing packaged runtime";
             }
         }
 
@@ -174,7 +203,10 @@ namespace Patina.Editor
 
         public static bool TryGetRuntimeSetupBlocker(out string blockerMessage)
         {
-            if (IsLocalRuntimeOverrideEnabled && TryGetContributorRuntimeStaleReason(out blockerMessage))
+            if (
+                IsLocalRuntimeOverrideEnabled
+                && TryGetContributorRuntimeStaleReason(out blockerMessage)
+            )
                 return true;
 
             if (!IsLocalRuntimeOverrideEnabled && !TryGetManagedPackagedRuntimePath(out _))
@@ -198,15 +230,17 @@ namespace Patina.Editor
         {
             try
             {
-                PackageInfo packageInfo = PackageInfo.FindForAssembly(typeof(ProcessManager).Assembly);
+                PackageInfo packageInfo = PackageInfo.FindForAssembly(
+                    typeof(ProcessManager).Assembly
+                );
                 if (packageInfo != null && !string.IsNullOrEmpty(packageInfo.resolvedPath))
                     return Path.GetFullPath(packageInfo.resolvedPath);
             }
-            catch
-            {
-            }
+            catch { }
 
-            return Path.GetFullPath(Path.Combine(Application.dataPath, "..", "Packages", PackageName));
+            return Path.GetFullPath(
+                Path.Combine(Application.dataPath, "..", "Packages", PackageName)
+            );
         }
 
         private static bool TryGetPackagedRuntimePath(out string runtimePath)
@@ -233,11 +267,16 @@ namespace Patina.Editor
                 FileInfo source = new FileInfo(packagedPath);
                 RuntimeMetadata existingMetadata = ReadRuntimeMetadata(metadataPath);
                 string packageVersion = GetPackageVersion();
-                bool shouldCopy = !File.Exists(managedPath)
-                                  || existingMetadata == null
-                                  || !string.Equals(existingMetadata.PackageVersion, packageVersion, StringComparison.Ordinal)
-                                  || existingMetadata.SourceLastWriteTimeUtcTicks != source.LastWriteTimeUtc.Ticks
-                                  || existingMetadata.SourceLength != source.Length;
+                bool shouldCopy =
+                    !File.Exists(managedPath)
+                    || existingMetadata == null
+                    || !string.Equals(
+                        existingMetadata.PackageVersion,
+                        packageVersion,
+                        StringComparison.Ordinal
+                    )
+                    || existingMetadata.SourceLastWriteTimeUtcTicks != source.LastWriteTimeUtc.Ticks
+                    || existingMetadata.SourceLength != source.Length;
 
                 if (shouldCopy)
                 {
@@ -249,6 +288,7 @@ namespace Patina.Editor
 #endif
                     WriteRuntimeMetadata(metadataPath, packagedPath, source, packageVersion);
                     Debug.Log("[Patina] Managed runtime synchronized: " + managedPath);
+                    CleanupStaleRuntimeArtifacts(GetManagedRuntimeDirectory());
                 }
 
                 runtimePath = managedPath;
@@ -256,27 +296,130 @@ namespace Patina.Editor
             }
             catch (Exception ex)
             {
-                s_lastManagedRuntimeError = "Failed to prepare managed Patina runtime at " + managedPath + ": " + ex.Message;
+                s_lastManagedRuntimeError =
+                    "Failed to prepare managed Patina runtime at "
+                    + managedPath
+                    + ": "
+                    + ex.Message;
                 Debug.LogError("[Patina] " + s_lastManagedRuntimeError);
                 return false;
             }
         }
 
-        private static bool TryCopyManagedRuntime(string packagedPath, string managedPath, out string error)
+        private static bool TryCopyManagedRuntime(
+            string packagedPath,
+            string managedPath,
+            out string error
+        )
         {
             error = string.Empty;
 
+            // Copy to a same-directory temp file, move the existing target aside to a backup
+            // name, then move the temp file into place, instead of overwriting managedPath in
+            // place. An in-place File.Copy rewrites the target's existing inode; if the managed
+            // binary is currently exec()'d by an MCP host, macOS's code-signing page validation
+            // breaks and every subsequent exec() of that path is silently SIGKILLed (exit 137).
+            // Moving the old file aside (rather than deleting it) means managedPath is never
+            // briefly absent and the old binary is never lost if a later step fails -- on
+            // Windows a running .exe can't be deleted but can be renamed, so this also lets
+            // updates succeed even while an MCP host still has it open. The final move lands
+            // the new file under a fresh inode, so a later exec() never touches the old,
+            // now-stale one. See issue #99. (File.Move's 3-arg overwrite overload isn't
+            // available under Unity's netstandard2.1 reference assemblies, hence the
+            // move-aside-then-move-in approach instead.)
+            string tempPath = managedPath + ".tmp-" + Guid.NewGuid().ToString("N");
+            string backupPath = managedPath + ".old-" + Guid.NewGuid().ToString("N");
+            bool backedUp = false;
+
             try
             {
-                File.Copy(packagedPath, managedPath, true);
+                File.Copy(packagedPath, tempPath, true);
+                // File.Copy preserves the source's mtime rather than stamping the creation
+                // time, which would make the temp file look as old as the packaged binary to
+                // CleanupStaleRuntimeArtifacts. Stamp it fresh so the age threshold there
+                // measures how long this artifact has actually existed.
+                try
+                {
+                    File.SetLastWriteTimeUtc(tempPath, DateTime.UtcNow);
+                }
+                catch
+                {
+                    // Best-effort; if the stamp fails the swap itself must still proceed.
+                }
+#if !UNITY_EDITOR_WIN
+                EnsureExecutablePermission(tempPath);
+#endif
+                if (File.Exists(managedPath))
+                {
+                    File.Move(managedPath, backupPath);
+                    // Likewise, File.Move preserves the moved file's original mtime -- stamp
+                    // the backup fresh for the same reason as the temp file above.
+                    try
+                    {
+                        File.SetLastWriteTimeUtc(backupPath, DateTime.UtcNow);
+                    }
+                    catch
+                    {
+                        // Best-effort; ignore.
+                    }
+                    backedUp = true;
+                }
+
+                File.Move(tempPath, managedPath);
+
+                if (backedUp)
+                {
+                    try
+                    {
+                        File.Delete(backupPath);
+                    }
+                    catch
+                    {
+                        // Best-effort cleanup; a still-running process may hold the backup
+                        // open on Windows, which is harmless.
+                    }
+                }
+
                 s_loggedManagedRuntimeLockedWarning = false;
                 return true;
             }
             catch (Exception ex)
             {
+                if (backedUp && !File.Exists(managedPath))
+                {
+                    try
+                    {
+                        File.Move(backupPath, managedPath);
+                    }
+                    catch (Exception restoreEx)
+                    {
+                        Debug.LogError(
+                            "[Patina] Failed to restore managed runtime backup to "
+                                + managedPath
+                                + " after a failed update: "
+                                + restoreEx.Message
+                                + " A usable copy is still available at "
+                                + backupPath
+                                + " and can be restored manually."
+                        );
+                    }
+                }
+
+                try
+                {
+                    if (File.Exists(tempPath))
+                        File.Delete(tempPath);
+                }
+                catch
+                {
+                    // Best-effort cleanup; ignore.
+                }
+
                 if (File.Exists(managedPath))
                 {
-                    error = "Managed runtime is in use and could not be refreshed. Close MCP hosts to allow Patina to update it, then run One-Click Setup again. " + ex.Message;
+                    error =
+                        "Managed runtime is in use and could not be refreshed. Close MCP hosts to allow Patina to update it, then run One-Click Setup again. "
+                        + ex.Message;
 
                     if (!s_loggedManagedRuntimeLockedWarning)
                     {
@@ -291,6 +434,55 @@ namespace Patina.Editor
             }
         }
 
+        // Best-effort sweep of leftover ".tmp-<guid>"/".old-<guid>" artifacts from prior
+        // TryCopyManagedRuntime runs (e.g. a backup that couldn't be deleted because a host
+        // still had it open). Never throws and never logs -- this is routine maintenance, not
+        // something the user needs to know about. Only called after this editor's own
+        // successful swap, and only ever removes artifacts stamped (see TryCopyManagedRuntime)
+        // older than s_staleRuntimeArtifactAge, so it can't collide with another editor's
+        // in-flight update of the same shared directory; a still-too-young file is simply left
+        // for a later successful swap -- by this editor or another -- to sweep once it ages
+        // past the threshold.
+        private static void CleanupStaleRuntimeArtifacts(string directory)
+        {
+            try
+            {
+                string binaryName = ServerBinaryName + GetBinaryExtension();
+                IEnumerable<string> staleFiles = Directory
+                    .EnumerateFiles(directory, binaryName + ".tmp-*")
+                    .Concat(Directory.EnumerateFiles(directory, binaryName + ".old-*"));
+
+                DateTime cutoffUtc = DateTime.UtcNow - s_staleRuntimeArtifactAge;
+
+                foreach (string staleFile in staleFiles)
+                {
+                    try
+                    {
+                        if (File.GetLastWriteTimeUtc(staleFile) > cutoffUtc)
+                            continue;
+                    }
+                    catch
+                    {
+                        // Can't determine age; skip rather than risk deleting something in use.
+                        continue;
+                    }
+
+                    try
+                    {
+                        File.Delete(staleFile);
+                    }
+                    catch
+                    {
+                        // Still in use or otherwise undeletable; leave it for next time.
+                    }
+                }
+            }
+            catch
+            {
+                // Best-effort maintenance; ignore.
+            }
+        }
+
         private static RuntimeMetadata ReadRuntimeMetadata(string metadataPath)
         {
             try
@@ -298,7 +490,9 @@ namespace Patina.Editor
                 if (!File.Exists(metadataPath))
                     return null;
 
-                return JsonConvert.DeserializeObject<RuntimeMetadata>(File.ReadAllText(metadataPath));
+                return JsonConvert.DeserializeObject<RuntimeMetadata>(
+                    File.ReadAllText(metadataPath)
+                );
             }
             catch
             {
@@ -306,7 +500,12 @@ namespace Patina.Editor
             }
         }
 
-        private static void WriteRuntimeMetadata(string metadataPath, string sourcePath, FileInfo source, string packageVersion)
+        private static void WriteRuntimeMetadata(
+            string metadataPath,
+            string sourcePath,
+            FileInfo source,
+            string packageVersion
+        )
         {
             RuntimeMetadata metadata = new RuntimeMetadata
             {
@@ -316,7 +515,7 @@ namespace Patina.Editor
                 SourcePath = sourcePath,
                 SourceLastWriteTimeUtcTicks = source.LastWriteTimeUtc.Ticks,
                 SourceLength = source.Length,
-                SyncedAtUtc = DateTime.UtcNow.ToString("O")
+                SyncedAtUtc = DateTime.UtcNow.ToString("O"),
             };
 
             string json = JsonConvert.SerializeObject(metadata, Formatting.Indented);
@@ -331,7 +530,9 @@ namespace Patina.Editor
                 if (!File.Exists(manifestPath))
                     return string.Empty;
 
-                PackageManifest manifest = JsonConvert.DeserializeObject<PackageManifest>(File.ReadAllText(manifestPath));
+                PackageManifest manifest = JsonConvert.DeserializeObject<PackageManifest>(
+                    File.ReadAllText(manifestPath)
+                );
                 return manifest != null ? manifest.version ?? string.Empty : string.Empty;
             }
             catch
@@ -347,11 +548,23 @@ namespace Patina.Editor
             return Path.Combine(root, "Patina", "UnityMcp", "runtime", GetPlatformDirectory());
 #elif UNITY_EDITOR_OSX
             string root = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
-            return Path.Combine(root, "Library", "Application Support", "Patina", "UnityMcp", "runtime", GetPlatformDirectory());
+            return Path.Combine(
+                root,
+                "Library",
+                "Application Support",
+                "Patina",
+                "UnityMcp",
+                "runtime",
+                GetPlatformDirectory()
+            );
 #else
             string dataHome = Environment.GetEnvironmentVariable("XDG_DATA_HOME");
             string root = string.IsNullOrWhiteSpace(dataHome)
-                ? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".local", "share")
+                ? Path.Combine(
+                    Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
+                    ".local",
+                    "share"
+                )
                 : dataHome;
             return Path.Combine(root, "patina-unity-mcp", "runtime", GetPlatformDirectory());
 #endif
@@ -364,7 +577,14 @@ namespace Patina.Editor
             string projectRoot = Path.GetFullPath(Path.Combine(Application.dataPath, ".."));
             string repoRoot = TryGetSourceRepoRoot(GetPackageRoot());
 
-            string projectRuntime = Path.Combine(projectRoot, "dist", "dev-runtime", "current", platformDir, binaryName);
+            string projectRuntime = Path.Combine(
+                projectRoot,
+                "dist",
+                "dev-runtime",
+                "current",
+                platformDir,
+                binaryName
+            );
             if (File.Exists(projectRuntime))
             {
                 runtimePath = Path.GetFullPath(projectRuntime);
@@ -373,7 +593,14 @@ namespace Patina.Editor
 
             if (!string.IsNullOrEmpty(repoRoot))
             {
-                string repoRuntime = Path.Combine(repoRoot, "dist", "dev-runtime", "current", platformDir, binaryName);
+                string repoRuntime = Path.Combine(
+                    repoRoot,
+                    "dist",
+                    "dev-runtime",
+                    "current",
+                    platformDir,
+                    binaryName
+                );
                 if (File.Exists(repoRuntime))
                 {
                     runtimePath = Path.GetFullPath(repoRuntime);
@@ -405,17 +632,23 @@ namespace Patina.Editor
             if (latestSourceWriteTimeUtc <= runtimeWriteTimeUtc)
                 return false;
 
-            staleReason = "Contributor runtime is older than the Rust source tree. Run `cargo build --release`, then `pwsh -File scripts/publish-dev-runtime.ps1`, and rerun One-Click Setup.";
+#if UNITY_EDITOR_WIN
+            const string PublishCommand = "pwsh -File scripts/publish-dev-runtime.ps1";
+#else
+            const string PublishCommand = "./scripts/publish-dev-runtime.sh";
+#endif
+            staleReason =
+                "Contributor runtime is older than the Rust source tree. Run `cargo build --release`, then `"
+                + PublishCommand
+                + "`, and rerun One-Click Setup.";
             return true;
         }
 
         private static DateTime GetLatestRustSourceWriteTimeUtc(string rustRoot)
         {
-            IEnumerable<string> candidateFiles = Directory.EnumerateFiles(Path.Combine(rustRoot, "src"), "*.rs", SearchOption.AllDirectories)
-                .Concat(new[]
-                {
-                    Path.Combine(rustRoot, "Cargo.toml")
-                })
+            IEnumerable<string> candidateFiles = Directory
+                .EnumerateFiles(Path.Combine(rustRoot, "src"), "*.rs", SearchOption.AllDirectories)
+                .Concat(new[] { Path.Combine(rustRoot, "Cargo.toml") })
                 .Where(File.Exists);
 
             DateTime latestWriteTimeUtc = DateTime.MinValue;
@@ -455,13 +688,15 @@ namespace Patina.Editor
                 if (parent == null)
                     return string.Empty;
 
-                string siblingRustServer = Path.Combine(parent.FullName, "rust-server", "Cargo.toml");
+                string siblingRustServer = Path.Combine(
+                    parent.FullName,
+                    "rust-server",
+                    "Cargo.toml"
+                );
                 if (File.Exists(siblingRustServer))
                     return parent.FullName;
             }
-            catch
-            {
-            }
+            catch { }
 
             return string.Empty;
         }
@@ -471,7 +706,10 @@ namespace Patina.Editor
 #if UNITY_EDITOR_WIN
             return "x86_64-win";
 #elif UNITY_EDITOR_OSX
-            if (System.Runtime.InteropServices.RuntimeInformation.OSArchitecture == System.Runtime.InteropServices.Architecture.Arm64)
+            if (
+                System.Runtime.InteropServices.RuntimeInformation.OSArchitecture
+                == System.Runtime.InteropServices.Architecture.Arm64
+            )
                 return "aarch64-macos";
             return "x86_64-macos";
 #else

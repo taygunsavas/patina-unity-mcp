@@ -46,8 +46,16 @@ cargo build --release
 3. Publish the current binary into the development runtime path.
 
 ```powershell
+# Windows
 pwsh -File scripts/publish-dev-runtime.ps1
 ```
+
+```bash
+# macOS / Linux
+./scripts/publish-dev-runtime.sh
+```
+
+Both scripts are equivalent and write to the same platform-specific path. Use the Bash variant when PowerShell 7 is not installed.
 
 4. In Unity, open `Window > Patina Unity MCP` and enable `Use Local Runtime (Contributor)`.
 
@@ -84,7 +92,7 @@ cargo test
 cargo clippy --all-targets --all-features -- -D warnings
 ```
 
-For C# changes, run the changed-file formatting and style gates from the repository root:
+For C# changes, run the changed-file formatting and style gates from the repository root. These gates need the **.NET 10 SDK** — the style-check tooling targets `net10.0` and CI pins `10.0.x`, so an older SDK fails with `NETSDK1045`:
 
 ```powershell
 dotnet tool restore
@@ -93,9 +101,16 @@ pwsh -File scripts/check-csharp-style.ps1 -BaseRef main
 dotnet test tools/Patina.CSharpStyleCheck.Tests/Patina.CSharpStyleCheck.Tests.csproj
 ```
 
+Without PowerShell 7 the two gate scripts can be driven directly, which is what they run underneath:
+
+```bash
+dotnet tool run csharpier -- check <changed files>
+dotnet run --project tools/Patina.CSharpStyleCheck/Patina.CSharpStyleCheck.csproj -- <changed files>
+```
+
 The C# style gate intentionally checks only added or modified non-generated C# files. It enforces explicit accessibility and the repository naming conventions without requiring a bulk cleanup of legacy Unity package code.
 
-- If you changed packaging or runtime publishing behavior, also run `pwsh -File scripts/publish-dev-runtime.ps1`.
+- If you changed packaging or runtime publishing behavior, also run `pwsh -File scripts/publish-dev-runtime.ps1` (or `./scripts/publish-dev-runtime.sh` on macOS/Linux). Keep both scripts in sync when you change either one.
 - If you changed the Unity package layout, also run `pwsh -File scripts/stage-local-upm.ps1`.
 - If your change affects Unity editor behavior, include manual validation notes from a real Unity project in the pull request.
 - If you changed the local runtime selection behavior, also rerun `Remove Patina From Hosts` and `One-Click Setup` after republishing the dev runtime.
