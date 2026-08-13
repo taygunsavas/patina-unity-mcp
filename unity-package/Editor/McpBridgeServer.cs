@@ -102,6 +102,11 @@ namespace Patina.Editor
         private static DateTime s_nextSupervisorCheckUtc = DateTime.MinValue;
         private static bool s_autoStartEnabled = true;
         private static int s_lifecycleHooksRegistered;
+        private const int MaxConsecutiveBrokerLaunchFailures = 5;
+        private static int s_consecutiveBrokerLaunchFailures;
+        private static volatile bool s_brokerRelaunchSuspended;
+        private static bool s_loggedBrokerRelaunchSuspended;
+        private static bool s_sawSigkillInFailureSeries;
 
         private sealed class SessionMetadata
         {
@@ -189,6 +194,10 @@ namespace Patina.Editor
                 SessionState.SetBool(ExplicitStopSessionStateKey, false);
                 s_lastError = null;
                 s_health = "starting";
+                s_consecutiveBrokerLaunchFailures = 0;
+                s_brokerRelaunchSuspended = false;
+                s_loggedBrokerRelaunchSuspended = false;
+                s_sawSigkillInFailureSeries = false;
                 s_cancel = new CancellationTokenSource();
                 CancellationToken startToken = s_cancel.Token;
                 SessionMetadata metadata = CaptureMetadata();
@@ -202,7 +211,8 @@ namespace Patina.Editor
 
         private static bool RequiresRuntimeRefreshLocked()
         {
-            return s_lastError?.StartsWith("Patina runtime is missing", StringComparison.Ordinal)
+            return s_brokerRelaunchSuspended
+                || s_lastError?.StartsWith("Patina runtime is missing", StringComparison.Ordinal)
                     == true
                 || s_lastError?.StartsWith(
                     "Could not start Patina shared broker",
@@ -403,6 +413,10 @@ namespace Patina.Editor
                         s_running = true;
                         s_lastError = null;
                         s_health = "responsive";
+                        s_consecutiveBrokerLaunchFailures = 0;
+                        s_brokerRelaunchSuspended = false;
+                        s_loggedBrokerRelaunchSuspended = false;
+                        s_sawSigkillInFailureSeries = false;
                         UnityEngine.Debug.Log(
                             "[Patina] Connected to shared broker on port " + Port + "."
                         );
@@ -415,13 +429,22 @@ namespace Patina.Editor
                 {
                     if (!token.IsCancellationRequested && IsCurrentGeneration(generation))
                     {
-                        s_lastError =
-                            "Patina broker connection dropped: "
-                            + ex.GetType().Name
-                            + ": "
-                            + ex.Message;
-                        s_health = "reconnecting";
-                        UnityEngine.Debug.LogWarning("[Patina] " + s_lastError);
+                        // Locked together with RegisterBrokerLaunchFailure's writes so a
+                        // suspension decided concurrently on another thread can never be
+                        // clobbered by this generic "connection dropped" message.
+                        lock (s_lock)
+                        {
+                            if (!s_brokerRelaunchSuspended)
+                            {
+                                s_lastError =
+                                    "Patina broker connection dropped: "
+                                    + ex.GetType().Name
+                                    + ": "
+                                    + ex.Message;
+                                s_health = "reconnecting";
+                                UnityEngine.Debug.LogWarning("[Patina] " + s_lastError);
+                            }
+                        }
                         TryLaunchBroker(metadata, generation);
                     }
                 }
@@ -736,6 +759,8 @@ namespace Patina.Editor
 
         private static void TryLaunchBroker(SessionMetadata metadata, long generation)
         {
+            if (s_brokerRelaunchSuspended)
+                return;
             DateTime now = DateTime.UtcNow;
             lock (s_lock)
             {
@@ -767,8 +792,11 @@ namespace Patina.Editor
                 );
                 if (process == null)
                 {
-                    s_lastError = "Could not start Patina shared broker.";
-                    s_health = "error";
+                    RegisterBrokerLaunchFailure(
+                        "Could not start Patina shared broker.",
+                        null,
+                        generation
+                    );
                 }
                 else
                 {
@@ -780,8 +808,11 @@ namespace Patina.Editor
             }
             catch (Exception ex)
             {
-                s_lastError = "Could not start Patina shared broker: " + ex.Message;
-                s_health = "error";
+                RegisterBrokerLaunchFailure(
+                    "Could not start Patina shared broker: " + ex.Message,
+                    null,
+                    generation
+                );
             }
         }
 
@@ -817,11 +848,67 @@ namespace Patina.Editor
                 || await CanConnectToBrokerAsync().ConfigureAwait(false)
             )
                 return;
-            s_lastError =
+            RegisterBrokerLaunchFailure(
                 "Patina shared broker exited before accepting connections (exit code "
-                + exitCode
-                + ").";
-            s_health = "error";
+                    + exitCode
+                    + ").",
+                exitCode,
+                generation
+            );
+        }
+
+        /// <summary>
+        /// Single choke point for every broker-launch failure path (failed to spawn the
+        /// process, spawn threw, or the spawned process exited before accepting
+        /// connections). Counts consecutive failures and, once
+        /// <see cref="MaxConsecutiveBrokerLaunchFailures"/> is reached, suspends automatic
+        /// relaunching so <see cref="TryLaunchBroker"/> stops spawning new processes.
+        /// Runs under <see cref="s_lock"/> so the suspension decision, the counter, and
+        /// <see cref="s_lastError"/>/<see cref="s_health"/> stay consistent with the
+        /// connect loop's own error reporting, which checks <see cref="s_brokerRelaunchSuspended"/>
+        /// under the same lock before writing a generic reconnect message. The generation
+        /// check also runs inside the lock: a stale supervisor generation's exit handler can
+        /// still be in flight (e.g. racing an async connectivity probe) after the user hits
+        /// Start/Restart and a fresh generation has already reset the failure state, so this
+        /// must never write anything for a generation that is no longer current.
+        /// </summary>
+        private static void RegisterBrokerLaunchFailure(
+            string message,
+            int? exitCode,
+            long generation
+        )
+        {
+            lock (s_lock)
+            {
+                if (!IsCurrentGeneration(generation))
+                    return;
+                s_lastError = message;
+                s_health = "error";
+                if (exitCode == 137)
+                    s_sawSigkillInFailureSeries = true;
+                int consecutiveFailures = ++s_consecutiveBrokerLaunchFailures;
+                if (consecutiveFailures < MaxConsecutiveBrokerLaunchFailures)
+                    return;
+                s_brokerRelaunchSuspended = true;
+                string hint = string.Empty;
+                if (s_sawSigkillInFailureSeries)
+                    hint =
+                        " At least one of these exits was code 137 (SIGKILL), which usually "
+                        + "means the runtime binary was overwritten while it was running (same "
+                        + "inode, so code-signing verification breaks); re-publishing the "
+                        + "runtime should fix it.";
+                s_lastError =
+                    message
+                    + " ("
+                    + consecutiveFailures
+                    + " consecutive failures); automatic relaunch has been stopped. Restart the "
+                    + "broker manually (Start) once the underlying issue is fixed."
+                    + hint;
+                if (s_loggedBrokerRelaunchSuspended)
+                    return;
+                s_loggedBrokerRelaunchSuspended = true;
+                UnityEngine.Debug.LogError("[Patina] " + s_lastError);
+            }
         }
 
         private static async Task<bool> CanConnectToBrokerAsync()
