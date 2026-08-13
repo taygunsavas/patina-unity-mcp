@@ -12,4 +12,4 @@ if ([string]::IsNullOrWhiteSpace($BaseRef)) {
 $files = @(& "$PSScriptRoot/Get-ChangedCSharpFiles.ps1" -BaseRef $BaseRef)
 if ($files.Count -eq 0) { Write-Host "No changed C# files to format-check."; exit 0 }
 
-dotnet tool run dotnet-csharpier -- --check @files
+dotnet tool run csharpier -- check @files
