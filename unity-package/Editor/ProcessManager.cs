@@ -15,6 +15,15 @@ namespace Patina.Editor
         private const string LocalRuntimeOverridePrefsKey = "Patina.LocalRuntimeOverride";
         private const string LegacyDevelopmentModePrefsKey = "Patina.DevelopmentMode";
 
+        // The managed runtime directory is shared by every Unity editor instance on the
+        // machine, and CleanupStaleRuntimeArtifacts can run concurrently with another editor's
+        // in-flight TryCopyManagedRuntime swap. Artifacts are stamped with the current time when
+        // they're created (see TryCopyManagedRuntime), not left with a copied/moved-over source
+        // mtime, so this threshold measures real artifact age. Only sweep artifacts old enough
+        // that they can no longer belong to a swap in progress, so a fresh ".tmp-"/".old-" file
+        // another editor is actively using is never touched.
+        private static readonly TimeSpan s_staleRuntimeArtifactAge = TimeSpan.FromHours(1);
+
         private static string s_lastManagedRuntimeError = string.Empty;
         private static bool s_loggedManagedRuntimeLockedWarning;
 
@@ -279,6 +288,7 @@ namespace Patina.Editor
 #endif
                     WriteRuntimeMetadata(metadataPath, packagedPath, source, packageVersion);
                     Debug.Log("[Patina] Managed runtime synchronized: " + managedPath);
+                    CleanupStaleRuntimeArtifacts(GetManagedRuntimeDirectory());
                 }
 
                 runtimePath = managedPath;
@@ -304,14 +314,107 @@ namespace Patina.Editor
         {
             error = string.Empty;
 
+            // Copy to a same-directory temp file, move the existing target aside to a backup
+            // name, then move the temp file into place, instead of overwriting managedPath in
+            // place. An in-place File.Copy rewrites the target's existing inode; if the managed
+            // binary is currently exec()'d by an MCP host, macOS's code-signing page validation
+            // breaks and every subsequent exec() of that path is silently SIGKILLed (exit 137).
+            // Moving the old file aside (rather than deleting it) means managedPath is never
+            // briefly absent and the old binary is never lost if a later step fails -- on
+            // Windows a running .exe can't be deleted but can be renamed, so this also lets
+            // updates succeed even while an MCP host still has it open. The final move lands
+            // the new file under a fresh inode, so a later exec() never touches the old,
+            // now-stale one. See issue #99. (File.Move's 3-arg overwrite overload isn't
+            // available under Unity's netstandard2.1 reference assemblies, hence the
+            // move-aside-then-move-in approach instead.)
+            string tempPath = managedPath + ".tmp-" + Guid.NewGuid().ToString("N");
+            string backupPath = managedPath + ".old-" + Guid.NewGuid().ToString("N");
+            bool backedUp = false;
+
             try
             {
-                File.Copy(packagedPath, managedPath, true);
+                File.Copy(packagedPath, tempPath, true);
+                // File.Copy preserves the source's mtime rather than stamping the creation
+                // time, which would make the temp file look as old as the packaged binary to
+                // CleanupStaleRuntimeArtifacts. Stamp it fresh so the age threshold there
+                // measures how long this artifact has actually existed.
+                try
+                {
+                    File.SetLastWriteTimeUtc(tempPath, DateTime.UtcNow);
+                }
+                catch
+                {
+                    // Best-effort; if the stamp fails the swap itself must still proceed.
+                }
+#if !UNITY_EDITOR_WIN
+                EnsureExecutablePermission(tempPath);
+#endif
+                if (File.Exists(managedPath))
+                {
+                    File.Move(managedPath, backupPath);
+                    // Likewise, File.Move preserves the moved file's original mtime -- stamp
+                    // the backup fresh for the same reason as the temp file above.
+                    try
+                    {
+                        File.SetLastWriteTimeUtc(backupPath, DateTime.UtcNow);
+                    }
+                    catch
+                    {
+                        // Best-effort; ignore.
+                    }
+                    backedUp = true;
+                }
+
+                File.Move(tempPath, managedPath);
+
+                if (backedUp)
+                {
+                    try
+                    {
+                        File.Delete(backupPath);
+                    }
+                    catch
+                    {
+                        // Best-effort cleanup; a still-running process may hold the backup
+                        // open on Windows, which is harmless.
+                    }
+                }
+
                 s_loggedManagedRuntimeLockedWarning = false;
                 return true;
             }
             catch (Exception ex)
             {
+                if (backedUp && !File.Exists(managedPath))
+                {
+                    try
+                    {
+                        File.Move(backupPath, managedPath);
+                    }
+                    catch (Exception restoreEx)
+                    {
+                        Debug.LogError(
+                            "[Patina] Failed to restore managed runtime backup to "
+                                + managedPath
+                                + " after a failed update: "
+                                + restoreEx.Message
+                                + " A usable copy is still available at "
+                                + backupPath
+                                + " and can be restored manually."
+                        );
+                    }
+                }
+
+                try
+                {
+                    if (File.Exists(tempPath))
+                        File.Delete(tempPath);
+                }
+                catch
+                {
+                    // Best-effort cleanup; ignore.
+                }
+
                 if (File.Exists(managedPath))
                 {
                     error =
@@ -328,6 +431,55 @@ namespace Patina.Editor
                 }
 
                 throw;
+            }
+        }
+
+        // Best-effort sweep of leftover ".tmp-<guid>"/".old-<guid>" artifacts from prior
+        // TryCopyManagedRuntime runs (e.g. a backup that couldn't be deleted because a host
+        // still had it open). Never throws and never logs -- this is routine maintenance, not
+        // something the user needs to know about. Only called after this editor's own
+        // successful swap, and only ever removes artifacts stamped (see TryCopyManagedRuntime)
+        // older than s_staleRuntimeArtifactAge, so it can't collide with another editor's
+        // in-flight update of the same shared directory; a still-too-young file is simply left
+        // for a later successful swap -- by this editor or another -- to sweep once it ages
+        // past the threshold.
+        private static void CleanupStaleRuntimeArtifacts(string directory)
+        {
+            try
+            {
+                string binaryName = ServerBinaryName + GetBinaryExtension();
+                IEnumerable<string> staleFiles = Directory
+                    .EnumerateFiles(directory, binaryName + ".tmp-*")
+                    .Concat(Directory.EnumerateFiles(directory, binaryName + ".old-*"));
+
+                DateTime cutoffUtc = DateTime.UtcNow - s_staleRuntimeArtifactAge;
+
+                foreach (string staleFile in staleFiles)
+                {
+                    try
+                    {
+                        if (File.GetLastWriteTimeUtc(staleFile) > cutoffUtc)
+                            continue;
+                    }
+                    catch
+                    {
+                        // Can't determine age; skip rather than risk deleting something in use.
+                        continue;
+                    }
+
+                    try
+                    {
+                        File.Delete(staleFile);
+                    }
+                    catch
+                    {
+                        // Still in use or otherwise undeletable; leave it for next time.
+                    }
+                }
+            }
+            catch
+            {
+                // Best-effort maintenance; ignore.
             }
         }
 
@@ -480,8 +632,15 @@ namespace Patina.Editor
             if (latestSourceWriteTimeUtc <= runtimeWriteTimeUtc)
                 return false;
 
+#if UNITY_EDITOR_WIN
+            const string PublishCommand = "pwsh -File scripts/publish-dev-runtime.ps1";
+#else
+            const string PublishCommand = "./scripts/publish-dev-runtime.sh";
+#endif
             staleReason =
-                "Contributor runtime is older than the Rust source tree. Run `cargo build --release`, then `pwsh -File scripts/publish-dev-runtime.ps1`, and rerun One-Click Setup.";
+                "Contributor runtime is older than the Rust source tree. Run `cargo build --release`, then `"
+                + PublishCommand
+                + "`, and rerun One-Click Setup.";
             return true;
         }
 
