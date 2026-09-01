@@ -72,7 +72,11 @@ pub struct EditPrefabAssetAction {
     /// Field name (required for set_field).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub field_name: Option<String>,
-    /// Field value (required for set_field).
+    /// Field value (required for set_field). Scalar types: float → 1.5, bool → true, int → 42, string → "text";
+    /// arrays: Vector2 → [0.0,0.0], Vector3 → [0.0,0.0,0.0], Color → [1.0,0.0,0.0,1.0], Quaternion → [0.0,0.0,0.0,1.0].
+    /// Object reference fields accept null to clear, "Assets/..." or "Packages/..." asset path, 32-char GUID,
+    /// "Child/Grandchild" transform path relative to prefab root (resolves to GameObject or its component),
+    /// or {"transform_path": "Child", "component_type": "Namespace.Type"}, {"asset_path": "Assets/..."}, {"guid": "..."}, or {"instance_id": 123}.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub value: Option<serde_json::Value>,
     /// Child GameObject name (required for add_child).
@@ -80,6 +84,8 @@ pub struct EditPrefabAssetAction {
     pub child_name: Option<String>,
 }
 
+/// The returned instanceId identifies the prefab asset object. It is not usable as a reference
+/// value in edit_prefab_asset, which edits an in-memory copy: bind references with transform_path.
 #[derive(Debug, Deserialize, Serialize, JsonSchema)]
 pub struct ListPrefabComponentsArgs {
     /// Asset path, e.g. "Assets/Prefabs/MyPrefab.prefab".
@@ -87,6 +93,12 @@ pub struct ListPrefabComponentsArgs {
     /// Relative transform path, e.g. "Child/Grandchild" (optional, default root).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub transform_path: Option<String>,
+    /// Also list child GameObjects with their transform paths and component types. Defaults to false.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub include_children: Option<bool>,
+    /// Maximum child depth when include_children is true. 0 or omitted means unlimited.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub max_depth: Option<u32>,
 }
 
 #[derive(Debug, Deserialize, Serialize, JsonSchema)]

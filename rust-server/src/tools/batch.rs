@@ -11,6 +11,7 @@ pub struct BatchPropertyOperation {
     /// Property or field name on the component.
     pub property_name: String,
     /// Value as JSON matching the property type: float → 1.5, bool → true, Vector3 → [0.0,0.0,0.0].
+    /// Object reference fields accept null, an "Assets/..." path, a 32-char GUID, a transform path, or {"transform_path": "Child", "component_type": "Ns.Type"}. A transform path is resolved against the root of the target GameObject's own hierarchy.
     pub value: Value,
 }
 
