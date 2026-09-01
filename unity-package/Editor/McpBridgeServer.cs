@@ -128,6 +128,7 @@ namespace Patina.Editor
         public static string LocalSessionHealth => s_health;
         public static string LastError => s_lastError;
         public static BridgeRuntimeState RuntimeState => GetStatusSnapshot().State;
+        public static int ReloadCount => s_reloadCount;
 
         static McpBridgeServer()
         {

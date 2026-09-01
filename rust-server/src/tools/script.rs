@@ -23,3 +23,10 @@ pub struct ResolveScriptTypeArgs {
     /// Fully qualified class name, e.g. "MyNamespace.MyComponent".
     pub type_name: String,
 }
+
+#[derive(Debug, Deserialize, Serialize, JsonSchema)]
+pub struct RequestScriptReloadArgs {
+    /// Wait budget in milliseconds for the domain reload to complete. Defaults to 60000; clamped by Unity to [1000, 180000].
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub timeout_ms: Option<u32>,
+}

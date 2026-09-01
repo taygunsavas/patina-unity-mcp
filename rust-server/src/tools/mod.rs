@@ -58,7 +58,7 @@ pub use scene::{
     GetBuildSettingsArgs, GetSceneInfoArgs, NewSceneArgs, OpenSceneArgs, SaveSceneArgs,
     SetBuildScenesArgs,
 };
-pub use script::{CreateScriptArgs, ResolveScriptTypeArgs};
+pub use script::{CreateScriptArgs, RequestScriptReloadArgs, ResolveScriptTypeArgs};
 pub use scriptable_object::{GetScriptableObjectArgs, SetScriptableObjectFieldArgs};
 pub use scripting_diag::{
     CompileAndGetErrorsArgs, ForceRecompileArgs, GetAssemblyTypesArgs, GetCompilationErrorsArgs,
