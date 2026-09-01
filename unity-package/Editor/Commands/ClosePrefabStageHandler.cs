@@ -1,5 +1,5 @@
-using Newtonsoft.Json.Linq;
 using System.Threading.Tasks;
+using Newtonsoft.Json.Linq;
 using UnityEditor.SceneManagement;
 using UnityEngine;
 
@@ -9,9 +9,10 @@ namespace Patina.Editor.Commands
     {
         public async Task<object> HandleAsync(JObject parameters)
         {
-            bool saveChanges = parameters != null &&
-                parameters.TryGetValue("save_changes", out var saveToken) &&
-                saveToken.Value<bool>();
+            bool saveChanges =
+                parameters != null
+                && parameters.TryGetValue("save_changes", out var saveToken)
+                && saveToken.Value<bool>();
 
             return await MainThreadQueue.EnqueueAsync(() =>
             {
@@ -23,7 +24,7 @@ namespace Patina.Editor.Commands
                         ["success"] = false,
                         ["message"] = "No active prefab stage found",
                         ["saved"] = false,
-                        ["changedAssets"] = new JArray()
+                        ["changedAssets"] = new JArray(),
                     };
                 }
 
@@ -74,12 +75,13 @@ namespace Patina.Editor.Commands
                     return new JObject
                     {
                         ["success"] = false,
-                        ["message"] = "The prefab stage remained open; the close was cancelled by Unity. The prefab may be in an immutable folder, or an unexpected dialog was shown.",
+                        ["message"] =
+                            "The prefab stage remained open; the close was cancelled by Unity. The prefab may be in an immutable folder, or an unexpected dialog was shown.",
                         ["saved"] = false,
                         ["changedAssets"] = new JArray(),
                         ["wasDirty"] = wasDirty,
                         ["discardedChanges"] = false,
-                        ["dialogAutomation"] = dialogAutomation
+                        ["dialogAutomation"] = dialogAutomation,
                     };
                 }
 
@@ -90,7 +92,7 @@ namespace Patina.Editor.Commands
                     ["changedAssets"] = saved ? new JArray(assetPath) : new JArray(),
                     ["wasDirty"] = wasDirty,
                     ["discardedChanges"] = discardedChanges,
-                    ["dialogAutomation"] = dialogAutomation
+                    ["dialogAutomation"] = dialogAutomation,
                 };
             });
         }

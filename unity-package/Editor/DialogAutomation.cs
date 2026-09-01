@@ -132,24 +132,24 @@ namespace Patina.Editor
 
         private sealed class AttachedScope : IDisposable
         {
-            private readonly object m_context;
-            private bool m_disposed;
+            private readonly object _context;
+            private bool _disposed;
 
             public AttachedScope(object context)
             {
-                m_context = context;
+                _context = context;
             }
 
             public void Dispose()
             {
-                if (m_disposed)
+                if (_disposed)
                     return;
-                m_disposed = true;
+                _disposed = true;
                 try
                 {
-                    while ((bool)s_hasUnusedDialogResponses.Invoke(m_context, null))
+                    while ((bool)s_hasUnusedDialogResponses.Invoke(_context, null))
                     {
-                        s_getCurrentDialogResponseAndAdvance.Invoke(m_context, null);
+                        s_getCurrentDialogResponseAndAdvance.Invoke(_context, null);
                     }
                 }
                 catch { }
@@ -158,26 +158,26 @@ namespace Patina.Editor
 
         private sealed class OwnedScope : IDisposable
         {
-            private readonly object m_context;
-            private bool m_disposed;
+            private readonly object _context;
+            private bool _disposed;
 
             public OwnedScope(object context)
             {
-                m_context = context;
+                _context = context;
             }
 
             public void Dispose()
             {
-                if (m_disposed)
+                if (_disposed)
                     return;
-                m_disposed = true;
+                _disposed = true;
                 try
                 {
-                    while ((bool)s_hasUnusedDialogResponses.Invoke(m_context, null))
+                    while ((bool)s_hasUnusedDialogResponses.Invoke(_context, null))
                     {
-                        s_getCurrentDialogResponseAndAdvance.Invoke(m_context, null);
+                        s_getCurrentDialogResponseAndAdvance.Invoke(_context, null);
                     }
-                    s_globalContextDispose.Invoke(m_context, null);
+                    s_globalContextDispose.Invoke(_context, null);
                 }
                 catch
                 {

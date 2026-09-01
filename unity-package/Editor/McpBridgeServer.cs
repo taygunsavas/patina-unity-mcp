@@ -108,10 +108,8 @@ namespace Patina.Editor
         private static bool s_loggedBrokerRelaunchSuspended;
         private static bool s_sawSigkillInFailureSeries;
 
-        public static readonly bool IsAutomatedMode = Array.IndexOf(
-            Environment.GetCommandLineArgs(),
-            "-automated"
-        ) >= 0;
+        public static readonly bool IsAutomatedMode =
+            Array.IndexOf(Environment.GetCommandLineArgs(), "-automated") >= 0;
 
         private sealed class SessionMetadata
         {
