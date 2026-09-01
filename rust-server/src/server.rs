@@ -175,7 +175,8 @@ const SERVER_INSTRUCTIONS: &str = concat!(
     "Use patina_capabilities to discover commands, then patina_call to execute them. ",
     "For Patina bugs, missing commands, or workflow gaps, ask the user before filing feedback. ",
     "With approval, follow repository rules, search existing issues, avoid duplicates, and include versions, host, repro steps, expected/actual behavior, and relevant errors. ",
-    "Issues: https://github.com/taygunsavas/patina-unity-mcp/issues"
+    "Issues: https://github.com/taygunsavas/patina-unity-mcp/issues. ",
+    "Write prefabs with edit_prefab_asset (it never opens a stage); if you do enter a prefab stage, leave it with close_prefab_stage, since a dirty stage closed by hand via StageUtility.GoToMainStage() in editor script locks Unity behind a modal dialog."
 );
 
 #[tool_router]

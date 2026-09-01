@@ -132,8 +132,8 @@ The 86 commands below are available through `patina_capabilities` and `patina_ca
 | `revert_prefab_overrides` | Restore a prefab instance to match its source asset |
 | `list_prefab_components` | List component types and instance IDs on a prefab asset; optionally includes child GameObjects with transform paths |
 | `edit_prefab_asset` | Perform a batch of edit operations (add/remove component, add/remove child, set field) on a prefab asset, including object-reference fields |
-| `open_prefab_stage` | Open a prefab asset in Unity's prefab stage for editing |
-| `close_prefab_stage` | Close Unity's current active prefab stage, optionally saving changes |
+| `open_prefab_stage` | Open a prefab asset in Unity's prefab stage for editing; exit using `close_prefab_stage` |
+| `close_prefab_stage` | Close the active prefab stage; `save_changes` parameter resolves dirty stages without Unity's blocking save prompt, giving save or discard decision |
 
 **Example: Set a component reference within a prefab.**
 
@@ -287,6 +287,16 @@ The setup window also detects stale entries, missing hosts, and provides a clean
 ## Troubleshooting
 
 If a Patina call reports `EDITOR_BLOCKED`, or mentions that Unity may be waiting on a modal dialog, check the Unity Editor for a save-changes prompt or other blocking popup. Patina cannot safely run queued editor commands while Unity is waiting for user input. Resolve the Unity prompt, then retry the MCP command or run `patina_health` with `{"include_unity_state": true}`.
+
+### Prefab Stage Save Dialogs
+
+Patina addresses dirty prefab stages by responding to the save question programmatically rather than blocking on a modal. When you call `close_prefab_stage`, the `save_changes` parameter directly determines the outcome: `true` saves, `false` (default) discards changes. This applies only to that command call and does not alter Editor behavior when a human is working manually.
+
+Once a modal dialog appears, Unity's main thread is blocked and remains blocked until a human closes it. Every queued command processes through the same blocked thread, so prevention is the only real solution. For agent-written editor scripts, the safe pattern is to write prefabs using `PrefabUtility.LoadPrefabContents`, apply changes to a `SerializedObject`, save with `PrefabUtility.SaveAsPrefabAsset`, then `PrefabUtility.UnloadPrefabContents`. This approach never opens a prefab stage. If a stage must be opened, close it with `close_prefab_stage`. Leaving a dirty stage and manually calling `StageUtility.GoToMainStage()` will lock the Editor.
+
+Unity offers a startup flag, `-automated`, which disables dialogs process-wide. While this may be suitable for an Editor driven entirely by agents, it creates problems in hybrid workflows where a human and agent share the same Editor: unsaved changes trigger no prompts, and some operations silently cancel. Patina does not require `-automated`. Per-command dialog answering works reliably without it and behaves correctly even in an Editor opened with `-automated`.
+
+To check the current Editor state and dialog automation status, call `patina_health` and examine `broker.sessions[].automated` in the default output, or `isAutomatedMode` and `dialogAutomationAvailable` when passing `{"include_unity_state": true}`.
 
 ## Roadmap
 
