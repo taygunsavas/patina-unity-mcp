@@ -26,7 +26,9 @@ namespace Patina.Editor.Commands
                     ["mainThreadQueuePendingCount"] = mainThreadQueuePendingCount,
                     ["blockedByModalDialogLikely"] = mainThreadUpdateAgeSeconds >= MainThreadQueue.BlockedThresholdSeconds,
                     ["unityVersion"] = Application.unityVersion,
-                    ["projectPath"] = Application.dataPath
+                    ["projectPath"] = Application.dataPath,
+                    ["isAutomatedMode"] = McpBridgeServer.IsAutomatedMode,
+                    ["dialogAutomationAvailable"] = DialogAutomation.IsAvailable
                 };
             });
         }

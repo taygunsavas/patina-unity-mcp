@@ -622,13 +622,13 @@ static COMMANDS: [CommandSpec; 86] = [
         "open_prefab_stage",
         "prefab",
         OpenPrefabStageArgs,
-        "Open a prefab asset in Unity's prefab stage."
+        "Open a prefab asset in Unity's prefab stage. Leaving the stage dirty and calling StageUtility.GoToMainStage() by hand from editor script locks the Editor behind a modal; use close_prefab_stage to exit instead."
     ),
     command!(
         "close_prefab_stage",
         "prefab",
         ClosePrefabStageArgs,
-        "Close the active prefab stage."
+        "Close the active prefab stage. A dirty stage is resolved programmatically instead of raising Unity's blocking save prompt: save_changes=true saves, false discards."
     ),
     command!(
         "validate_assets",

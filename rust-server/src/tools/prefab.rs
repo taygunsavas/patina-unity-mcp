@@ -109,7 +109,9 @@ pub struct OpenPrefabStageArgs {
 
 #[derive(Debug, Deserialize, Serialize, JsonSchema)]
 pub struct ClosePrefabStageArgs {
-    /// Save changes before closing the stage. Defaults to false.
+    /// A dirty stage is resolved programmatically, never with Unity's blocking save
+    /// prompt. true saves the stage before closing; false (the default) discards the
+    /// pending changes.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub save_changes: Option<bool>,
 }

@@ -63,6 +63,7 @@ struct UnitySession {
     health: Arc<Mutex<String>>,
     reload_count: u32,
     connected_at: Instant,
+    automated: bool,
 }
 
 /// A Unity session that unregistered with reason "assemblyReload" and has not
@@ -76,6 +77,7 @@ struct ReloadingSession {
     since: Instant,
     reload_count: u32,
     held: Vec<HeldRequest>,
+    automated: bool,
 }
 
 /// A request parked while its Unity session reloads. `dispatched` records
@@ -270,6 +272,10 @@ async fn handle_connection(
             .get("reloadCount")
             .and_then(Value::as_u64)
             .unwrap_or(0) as u32;
+        let automated = hello
+            .get("automated")
+            .and_then(Value::as_bool)
+            .unwrap_or(false);
         let session = UnitySession {
             id: session_id.clone(),
             connection_id,
@@ -289,6 +295,7 @@ async fn handle_connection(
             health: Arc::new(Mutex::new("responsive".into())),
             reload_count,
             connected_at: Instant::now(),
+            automated,
         };
         if let Some(previous) = state.sessions.insert(session_id.clone(), session) {
             let _ = previous.writer.lock().await.shutdown().await;
@@ -558,6 +565,7 @@ async fn park_session_for_reload(state: &BrokerState, session_id: &str, connecti
             since: Instant::now(),
             reload_count: session.reload_count,
             held,
+            automated: session.automated,
         },
     );
     warn!(
@@ -972,6 +980,7 @@ async fn sessions_json(state: &BrokerState, config: &BrokerConfig) -> Value {
             "state": if is_stale { "stale" } else { "connected" },
             "reloadCount": s.reload_count,
             "connectedForSeconds": s.connected_at.elapsed().as_secs_f64(),
+            "automated": s.automated,
         }));
     }
     for entry in state.reloading.iter() {
@@ -988,6 +997,7 @@ async fn sessions_json(state: &BrokerState, config: &BrokerConfig) -> Value {
             "reloadCount": entry.reload_count,
             "heldRequestCount": entry.held.len(),
             "reloadingForSeconds": age.as_secs_f64(),
+            "automated": entry.automated,
         }));
     }
     Value::Array(result)
@@ -1916,6 +1926,7 @@ mod tests {
                 package_version: None,
                 since: Instant::now(),
                 reload_count: 0,
+                automated: false,
                 held: vec![
                     HeldRequest {
                         id: "closed-agent-read".into(),
@@ -2430,6 +2441,7 @@ mod tests {
             health: Arc::new(Mutex::new("responsive".into())),
             reload_count: 0,
             connected_at: Instant::now(),
+            automated: false,
         };
         state.sessions.insert(session.id.clone(), session);
 
@@ -2474,6 +2486,7 @@ mod tests {
             health: Arc::new(Mutex::new("responsive".into())),
             reload_count: 0,
             connected_at: Instant::now(),
+            automated: false,
         };
         state.sessions.insert(session.id.clone(), session.clone());
         state
@@ -2664,6 +2677,7 @@ mod tests {
             health: Arc::new(Mutex::new("responsive".into())),
             reload_count: 0,
             connected_at: Instant::now(),
+            automated: false,
         };
         // The session is registered when dispatch selects it...
         state.sessions.insert(session.id.clone(), session.clone());
@@ -2724,6 +2738,7 @@ mod tests {
                 since: Instant::now(),
                 reload_count: 2,
                 held: Vec::new(),
+                automated: false,
             },
         );
 
