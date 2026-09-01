@@ -19,6 +19,7 @@ pub struct SetPropertyArgs {
     pub property_name: String,
     /// Value as JSON matching the property type: float → 1.5, bool → true, int → 42, string → "text",
     /// Vector2 → [0.0,0.0], Vector3 → [0.0,0.0,0.0], Color → [1.0,0.0,0.0,1.0], Quaternion → [0.0,0.0,0.0,1.0].
+    /// Object reference fields accept null, an "Assets/..." path, a 32-char GUID, a transform path, or {"transform_path": "Child", "component_type": "Ns.Type"}. A transform path is resolved against the root of the target GameObject's own hierarchy.
     pub value: serde_json::Value,
 }
 

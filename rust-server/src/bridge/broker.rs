@@ -63,6 +63,7 @@ struct UnitySession {
     health: Arc<Mutex<String>>,
     reload_count: u32,
     connected_at: Instant,
+    automated: bool,
 }
 
 /// A Unity session that unregistered with reason "assemblyReload" and has not
@@ -76,6 +77,7 @@ struct ReloadingSession {
     since: Instant,
     reload_count: u32,
     held: Vec<HeldRequest>,
+    automated: bool,
 }
 
 /// A request parked while its Unity session reloads. `dispatched` records
@@ -270,6 +272,10 @@ async fn handle_connection(
             .get("reloadCount")
             .and_then(Value::as_u64)
             .unwrap_or(0) as u32;
+        let automated = hello
+            .get("automated")
+            .and_then(Value::as_bool)
+            .unwrap_or(false);
         let session = UnitySession {
             id: session_id.clone(),
             connection_id,
@@ -289,6 +295,7 @@ async fn handle_connection(
             health: Arc::new(Mutex::new("responsive".into())),
             reload_count,
             connected_at: Instant::now(),
+            automated,
         };
         if let Some(previous) = state.sessions.insert(session_id.clone(), session) {
             let _ = previous.writer.lock().await.shutdown().await;
@@ -558,6 +565,7 @@ async fn park_session_for_reload(state: &BrokerState, session_id: &str, connecti
             since: Instant::now(),
             reload_count: session.reload_count,
             held,
+            automated: session.automated,
         },
     );
     warn!(
@@ -972,6 +980,7 @@ async fn sessions_json(state: &BrokerState, config: &BrokerConfig) -> Value {
             "state": if is_stale { "stale" } else { "connected" },
             "reloadCount": s.reload_count,
             "connectedForSeconds": s.connected_at.elapsed().as_secs_f64(),
+            "automated": s.automated,
         }));
     }
     for entry in state.reloading.iter() {
@@ -988,6 +997,7 @@ async fn sessions_json(state: &BrokerState, config: &BrokerConfig) -> Value {
             "reloadCount": entry.reload_count,
             "heldRequestCount": entry.held.len(),
             "reloadingForSeconds": age.as_secs_f64(),
+            "automated": entry.automated,
         }));
     }
     Value::Array(result)
@@ -1916,6 +1926,7 @@ mod tests {
                 package_version: None,
                 since: Instant::now(),
                 reload_count: 0,
+                automated: false,
                 held: vec![
                     HeldRequest {
                         id: "closed-agent-read".into(),
@@ -2011,6 +2022,59 @@ mod tests {
         assert_eq!(response["id"], "read-1");
         assert_eq!(response["success"], true);
         assert_eq!(response["result"]["echo"], true);
+
+        wait_for_resumed(&mut agent_reader, &mut agent_writer, "a").await;
+        broker.abort();
+    }
+
+    #[tokio::test]
+    async fn assembly_reload_parks_session_and_replays_request_script_reload() {
+        // Same rationale as assembly_reload_parks_session_and_replays_read_request
+        // above: a raw (heartbeat-silent) session needs heartbeat_timeout and
+        // reload_grace both raised to 5s to survive the pre-park and post-resume
+        // halves of this test without being evicted first.
+        let mut config = test_config();
+        config.heartbeat_timeout = Duration::from_secs(5);
+        config.reload_grace = Duration::from_secs(5);
+        let (address, broker) = start_broker(config).await;
+        let (mut unity_reader, mut unity_writer) =
+            connect_unity_raw(address, "a", "E:/Projects/A", 7, 0).await;
+        let (mut agent_reader, mut agent_writer) = connect_agent(address, "E:/Projects/A").await;
+        wait_for_sessions(&mut agent_reader, &mut agent_writer, 1).await;
+
+        request(
+            &mut agent_writer,
+            "reload-1",
+            "request_script_reload",
+            Some("E:/Projects/A"),
+            Some("a"),
+        )
+        .await;
+        read_matching_request(&mut unity_reader, "reload-1").await;
+
+        write_json(
+            &mut unity_writer,
+            &json!({"type":"unregister","sessionId":"a","reason":"assemblyReload"}),
+        )
+        .await
+        .unwrap();
+        wait_for_session_status(&mut agent_reader, &mut agent_writer, "a", "reloading").await;
+
+        let (mut resumed_reader, mut resumed_writer) =
+            connect_unity_raw(address, "a", "E:/Projects/A", 7, 1).await;
+        let replayed = read_matching_request(&mut resumed_reader, "reload-1").await;
+        assert_eq!(replayed["request"]["command"], "request_script_reload");
+        write_json(
+            &mut resumed_writer,
+            &ok("reload-1".to_string(), json!({"reloaded": true})),
+        )
+        .await
+        .unwrap();
+
+        let response = read_json(&mut agent_reader).await.unwrap().unwrap();
+        assert_eq!(response["id"], "reload-1");
+        assert_eq!(response["success"], true);
+        assert_eq!(response["result"]["reloaded"], true);
 
         wait_for_resumed(&mut agent_reader, &mut agent_writer, "a").await;
         broker.abort();
@@ -2430,6 +2494,7 @@ mod tests {
             health: Arc::new(Mutex::new("responsive".into())),
             reload_count: 0,
             connected_at: Instant::now(),
+            automated: false,
         };
         state.sessions.insert(session.id.clone(), session);
 
@@ -2474,6 +2539,7 @@ mod tests {
             health: Arc::new(Mutex::new("responsive".into())),
             reload_count: 0,
             connected_at: Instant::now(),
+            automated: false,
         };
         state.sessions.insert(session.id.clone(), session.clone());
         state
@@ -2664,6 +2730,7 @@ mod tests {
             health: Arc::new(Mutex::new("responsive".into())),
             reload_count: 0,
             connected_at: Instant::now(),
+            automated: false,
         };
         // The session is registered when dispatch selects it...
         state.sessions.insert(session.id.clone(), session.clone());
@@ -2724,6 +2791,7 @@ mod tests {
                 since: Instant::now(),
                 reload_count: 2,
                 held: Vec::new(),
+                automated: false,
             },
         );
 

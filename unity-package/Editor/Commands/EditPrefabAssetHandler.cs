@@ -1,7 +1,7 @@
-using Newtonsoft.Json.Linq;
 using System;
 using System.Reflection;
 using System.Threading.Tasks;
+using Newtonsoft.Json.Linq;
 using UnityEditor;
 using UnityEngine;
 
@@ -26,103 +26,186 @@ namespace Patina.Editor.Commands
             {
                 GameObject root = PrefabUtility.LoadPrefabContents(capturedPath);
                 if (root == null)
-                    throw new InvalidOperationException($"Failed to load prefab contents at: {capturedPath}");
+                    throw new InvalidOperationException(
+                        $"Failed to load prefab contents at: {capturedPath}"
+                    );
 
                 try
                 {
                     foreach (JToken actToken in capturedActions)
                     {
                         JObject action = actToken as JObject;
-                        if (action == null) continue;
+                        if (action == null)
+                            continue;
 
                         string actionType = action["action_type"]?.Value<string>();
                         string transformPath = action["transform_path"]?.Value<string>();
 
-                        GameObject targetGo = FindGameObjectByPath(root, transformPath);
+                        GameObject targetGo = ObjectReferenceResolver.FindByPath(
+                            root,
+                            transformPath
+                        );
                         if (targetGo == null)
-                            throw new InvalidOperationException($"GameObject not found at path '{transformPath}' inside prefab");
+                            throw new InvalidOperationException(
+                                $"GameObject not found at path '{transformPath}' inside prefab"
+                            );
 
                         switch (actionType)
                         {
                             case "add_component":
-                                {
-                                    string compType = action["component_type"]?.Value<string>();
-                                    if (string.IsNullOrEmpty(compType))
-                                        throw new ArgumentException("component_type is required for add_component");
-                                    Type type = FindType(compType);
-                                    if (type == null)
-                                        throw new InvalidOperationException($"Component type '{compType}' not found");
-                                    targetGo.AddComponent(type);
-                                    break;
-                                }
+                            {
+                                string compType = action["component_type"]?.Value<string>();
+                                if (string.IsNullOrEmpty(compType))
+                                    throw new ArgumentException(
+                                        "component_type is required for add_component"
+                                    );
+                                Type type = FindType(compType);
+                                if (type == null)
+                                    throw new InvalidOperationException(
+                                        $"Component type '{compType}' not found"
+                                    );
+                                targetGo.AddComponent(type);
+                                break;
+                            }
                             case "remove_component":
+                            {
+                                string compType = action["component_type"]?.Value<string>();
+                                if (string.IsNullOrEmpty(compType))
+                                    throw new ArgumentException(
+                                        "component_type is required for remove_component"
+                                    );
+                                Component comp = targetGo.GetComponent(compType);
+                                if (comp != null)
                                 {
-                                    string compType = action["component_type"]?.Value<string>();
-                                    if (string.IsNullOrEmpty(compType))
-                                        throw new ArgumentException("component_type is required for remove_component");
-                                    Component comp = targetGo.GetComponent(compType);
-                                    if (comp != null)
-                                    {
-                                        UnityEngine.Object.DestroyImmediate(comp, true);
-                                    }
-                                    break;
+                                    UnityEngine.Object.DestroyImmediate(comp, true);
                                 }
+                                break;
+                            }
                             case "add_child":
-                                {
-                                    string childName = action["child_name"]?.Value<string>();
-                                    if (string.IsNullOrEmpty(childName))
-                                        throw new ArgumentException("child_name is required for add_child");
-                                    GameObject child = new GameObject(childName);
-                                    child.transform.SetParent(targetGo.transform, false);
-                                    break;
-                                }
+                            {
+                                string childName = action["child_name"]?.Value<string>();
+                                if (string.IsNullOrEmpty(childName))
+                                    throw new ArgumentException(
+                                        "child_name is required for add_child"
+                                    );
+                                GameObject child = new GameObject(childName);
+                                child.transform.SetParent(targetGo.transform, false);
+                                break;
+                            }
                             case "remove_child":
-                                {
-                                    if (targetGo == root && (string.IsNullOrEmpty(transformPath) || transformPath == "/" || transformPath == "."))
-                                        throw new InvalidOperationException("Cannot remove the root GameObject of a prefab");
-                                    UnityEngine.Object.DestroyImmediate(targetGo, true);
-                                    break;
-                                }
+                            {
+                                if (
+                                    targetGo == root
+                                    && (
+                                        string.IsNullOrEmpty(transformPath)
+                                        || transformPath == "/"
+                                        || transformPath == "."
+                                    )
+                                )
+                                    throw new InvalidOperationException(
+                                        "Cannot remove the root GameObject of a prefab"
+                                    );
+                                UnityEngine.Object.DestroyImmediate(targetGo, true);
+                                break;
+                            }
                             case "set_field":
+                            {
+                                string compType = action["component_type"]?.Value<string>();
+                                string fieldName = action["field_name"]?.Value<string>();
+                                JToken value = action["value"];
+
+                                if (string.IsNullOrEmpty(compType))
+                                    throw new ArgumentException(
+                                        "component_type is required for set_field"
+                                    );
+                                if (string.IsNullOrEmpty(fieldName))
+                                    throw new ArgumentException(
+                                        "field_name is required for set_field"
+                                    );
+                                if (value == null)
+                                    throw new ArgumentException("value is required for set_field");
+
+                                Component comp = targetGo.GetComponent(compType);
+                                if (comp == null)
+                                    throw new InvalidOperationException(
+                                        $"Component '{compType}' not found on path '{transformPath}'"
+                                    );
+
+                                var so = new SerializedObject(comp);
+                                var sp = so.FindProperty(fieldName);
+                                if (sp == null)
                                 {
-                                    string compType = action["component_type"]?.Value<string>();
-                                    string fieldName = action["field_name"]?.Value<string>();
-                                    JToken value = action["value"];
-
-                                    if (string.IsNullOrEmpty(compType))
-                                        throw new ArgumentException("component_type is required for set_field");
-                                    if (string.IsNullOrEmpty(fieldName))
-                                        throw new ArgumentException("field_name is required for set_field");
-                                    if (value == null)
-                                        throw new ArgumentException("value is required for set_field");
-
-                                    Component comp = targetGo.GetComponent(compType);
-                                    if (comp == null)
-                                        throw new InvalidOperationException($"Component '{compType}' not found on path '{transformPath}'");
-
-                                    var so = new SerializedObject(comp);
-                                    var sp = so.FindProperty(fieldName);
-                                    if (sp == null)
+                                    var fieldInfo = FindFieldInHierarchy(comp.GetType(), fieldName);
+                                    if (fieldInfo != null)
                                     {
-                                        var fieldInfo = comp.GetType().GetField(fieldName, BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
-                                        if (fieldInfo != null)
+                                        if (
+                                            typeof(UnityEngine.Object).IsAssignableFrom(
+                                                fieldInfo.FieldType
+                                            )
+                                        )
                                         {
-                                            object converted = ConvertValue(value, fieldInfo.FieldType, fieldName);
-                                            fieldInfo.SetValue(comp, converted);
-                                            EditorUtility.SetDirty(comp);
+                                            var refContext = new ObjectReferenceContext
+                                            {
+                                                SearchRoot = root,
+                                                SelfAssetPath = capturedPath,
+                                                AllowSceneObjects = false,
+                                            };
+                                            if (
+                                                !ObjectReferenceResolver.TryResolve(
+                                                    value,
+                                                    fieldInfo.FieldType,
+                                                    refContext,
+                                                    out UnityEngine.Object resolvedRef,
+                                                    out string refError
+                                                )
+                                            )
+                                                throw new ArgumentException(
+                                                    $"Field '{fieldName}': {refError}"
+                                                );
+                                            fieldInfo.SetValue(comp, resolvedRef);
                                         }
                                         else
                                         {
-                                            throw new InvalidOperationException($"SerializedProperty or Field '{fieldName}' not found on '{compType}'");
+                                            object converted = ConvertValue(
+                                                value,
+                                                fieldInfo.FieldType,
+                                                fieldName
+                                            );
+                                            fieldInfo.SetValue(comp, converted);
                                         }
+                                        EditorUtility.SetDirty(comp);
                                     }
                                     else
                                     {
-                                        SetSerializedPropertyValue(sp, value);
-                                        so.ApplyModifiedProperties();
+                                        throw new InvalidOperationException(
+                                            $"SerializedProperty or Field '{fieldName}' not found on '{compType}'"
+                                        );
                                     }
-                                    break;
                                 }
+                                else
+                                {
+                                    Type expectedType = ResolveFieldType(
+                                        comp.GetType(),
+                                        sp.propertyPath,
+                                        sp
+                                    );
+                                    var refContext = new ObjectReferenceContext
+                                    {
+                                        SearchRoot = root,
+                                        SelfAssetPath = capturedPath,
+                                        AllowSceneObjects = false,
+                                    };
+                                    SetSerializedPropertyValue(
+                                        sp,
+                                        value,
+                                        expectedType,
+                                        refContext,
+                                        fieldName
+                                    );
+                                    so.ApplyModifiedProperties();
+                                }
+                                break;
+                            }
                             default:
                                 throw new ArgumentException($"Unknown action_type: {actionType}");
                         }
@@ -140,32 +223,96 @@ namespace Patina.Editor.Commands
                 return new JObject
                 {
                     ["success"] = true,
-                    ["changedAssets"] = new JArray(capturedPath)
+                    ["changedAssets"] = new JArray(capturedPath),
                 };
             });
-        }
-
-        private static GameObject FindGameObjectByPath(GameObject root, string path)
-        {
-            if (string.IsNullOrEmpty(path) || path == "/" || path == ".")
-                return root;
-
-            Transform current = root.transform;
-            string[] parts = path.Split('/');
-            foreach (var part in parts)
-            {
-                if (string.IsNullOrEmpty(part)) continue;
-                Transform child = current.Find(part);
-                if (child == null)
-                    return null;
-                current = child;
-            }
-            return current.gameObject;
         }
 
         private static Type FindType(string typeName)
         {
             return AddComponentHandler.FindType(typeName);
+        }
+
+        private static FieldInfo FindFieldInHierarchy(Type type, string fieldName)
+        {
+            for (Type current = type; current != null; current = current.BaseType)
+            {
+                FieldInfo field = current.GetField(
+                    fieldName,
+                    BindingFlags.Public
+                        | BindingFlags.NonPublic
+                        | BindingFlags.Instance
+                        | BindingFlags.DeclaredOnly
+                );
+                if (field != null)
+                    return field;
+            }
+            return null;
+        }
+
+        private static Type ResolveFieldType(
+            Type componentType,
+            string propertyPath,
+            SerializedProperty sp
+        )
+        {
+            string[] segments = propertyPath.Split('.');
+            Type currentType = componentType;
+
+            for (int i = 0; i < segments.Length; i++)
+            {
+                string segment = segments[i];
+
+                if (
+                    segment == "Array"
+                    && i + 1 < segments.Length
+                    && segments[i + 1].StartsWith("data[")
+                )
+                {
+                    currentType = GetElementType(currentType);
+                    if (currentType == null)
+                        break;
+                    i++;
+                    continue;
+                }
+
+                FieldInfo field = FindFieldInHierarchy(currentType, segment);
+                if (field == null)
+                {
+                    currentType = null;
+                    break;
+                }
+                currentType = field.FieldType;
+            }
+
+            if (currentType != null)
+                return currentType;
+
+            string spType = sp.type;
+            if (spType != null && spType.StartsWith("PPtr<$") && spType.EndsWith(">"))
+            {
+                string innerTypeName = spType.Substring(6, spType.Length - 7);
+                Type resolved = AddComponentHandler.FindType(innerTypeName);
+                if (resolved != null)
+                    return resolved;
+            }
+
+            return typeof(UnityEngine.Object);
+        }
+
+        private static Type GetElementType(Type collectionType)
+        {
+            if (collectionType == null)
+                return null;
+            if (collectionType.IsArray)
+                return collectionType.GetElementType();
+            if (collectionType.IsGenericType)
+            {
+                Type[] args = collectionType.GetGenericArguments();
+                if (args.Length == 1)
+                    return args[0];
+            }
+            return null;
         }
 
         private static object ConvertValue(JToken token, Type targetType, string fieldName)
@@ -175,24 +322,57 @@ namespace Patina.Editor.Commands
                 string s = jv.Value<string>();
                 if (s != null && s.TrimStart().StartsWith("["))
                 {
-                    try { token = JArray.Parse(s); } catch { }
+                    try
+                    {
+                        token = JArray.Parse(s);
+                    }
+                    catch { }
                 }
             }
 
-            if (targetType == typeof(int) || targetType == typeof(long)) return token.Value<int>();
-            if (targetType == typeof(float)) return token.Value<float>();
-            if (targetType == typeof(double)) return token.Value<double>();
-            if (targetType == typeof(bool)) return token.Value<bool>();
-            if (targetType == typeof(string)) return token.Value<string>();
+            if (targetType == typeof(int) || targetType == typeof(long))
+            {
+                ObjectReferenceResolver.EnsureScalar(token, $"field '{fieldName}'");
+                return token.Value<int>();
+            }
+            if (targetType == typeof(float))
+            {
+                ObjectReferenceResolver.EnsureScalar(token, $"field '{fieldName}'");
+                return token.Value<float>();
+            }
+            if (targetType == typeof(double))
+            {
+                ObjectReferenceResolver.EnsureScalar(token, $"field '{fieldName}'");
+                return token.Value<double>();
+            }
+            if (targetType == typeof(bool))
+            {
+                ObjectReferenceResolver.EnsureScalar(token, $"field '{fieldName}'");
+                return token.Value<bool>();
+            }
+            if (targetType == typeof(string))
+            {
+                ObjectReferenceResolver.EnsureScalar(token, $"field '{fieldName}'");
+                return token.Value<string>();
+            }
 
             if (targetType == typeof(Vector2) && token is JArray a2 && a2.Count >= 2)
                 return new Vector2(a2[0].Value<float>(), a2[1].Value<float>());
 
             if (targetType == typeof(Vector3) && token is JArray a3 && a3.Count >= 3)
-                return new Vector3(a3[0].Value<float>(), a3[1].Value<float>(), a3[2].Value<float>());
+                return new Vector3(
+                    a3[0].Value<float>(),
+                    a3[1].Value<float>(),
+                    a3[2].Value<float>()
+                );
 
             if (targetType == typeof(Vector4) && token is JArray a4 && a4.Count >= 4)
-                return new Vector4(a4[0].Value<float>(), a4[1].Value<float>(), a4[2].Value<float>(), a4[3].Value<float>());
+                return new Vector4(
+                    a4[0].Value<float>(),
+                    a4[1].Value<float>(),
+                    a4[2].Value<float>(),
+                    a4[3].Value<float>()
+                );
 
             if (targetType == typeof(Color) && token is JArray ac)
             {
@@ -205,29 +385,44 @@ namespace Patina.Editor.Commands
 
             if (targetType.IsEnum)
             {
+                ObjectReferenceResolver.EnsureScalar(token, $"field '{fieldName}'");
                 string strVal = token.Value<string>();
                 if (Enum.TryParse(targetType, strVal, ignoreCase: true, out var enumVal))
                     return enumVal;
-                throw new ArgumentException($"'{strVal}' is not a valid value for enum type '{targetType.Name}'");
+                throw new ArgumentException(
+                    $"'{strVal}' is not a valid value for enum type '{targetType.Name}'"
+                );
             }
 
-            throw new ArgumentException($"Field '{fieldName}' has unsupported type '{targetType.Name}'");
+            throw new ArgumentException(
+                $"Field '{fieldName}' has unsupported type '{targetType.Name}'"
+            );
         }
 
-        private static void SetSerializedPropertyValue(SerializedProperty sp, JToken token)
+        private static void SetSerializedPropertyValue(
+            SerializedProperty sp,
+            JToken token,
+            Type expectedType,
+            ObjectReferenceContext context,
+            string fieldName
+        )
         {
             switch (sp.propertyType)
             {
                 case SerializedPropertyType.Integer:
+                    ObjectReferenceResolver.EnsureScalar(token, $"field '{fieldName}'");
                     sp.intValue = token.Value<int>();
                     break;
                 case SerializedPropertyType.Boolean:
+                    ObjectReferenceResolver.EnsureScalar(token, $"field '{fieldName}'");
                     sp.boolValue = token.Value<bool>();
                     break;
                 case SerializedPropertyType.Float:
+                    ObjectReferenceResolver.EnsureScalar(token, $"field '{fieldName}'");
                     sp.floatValue = token.Value<float>();
                     break;
                 case SerializedPropertyType.String:
+                    ObjectReferenceResolver.EnsureScalar(token, $"field '{fieldName}'");
                     sp.stringValue = token.Value<string>();
                     break;
                 case SerializedPropertyType.Color:
@@ -246,6 +441,7 @@ namespace Patina.Editor.Commands
                     sp.quaternionValue = ParseQuaternion(token);
                     break;
                 case SerializedPropertyType.Enum:
+                    ObjectReferenceResolver.EnsureScalar(token, $"field '{fieldName}'");
                     if (token.Type == JTokenType.Integer)
                         sp.enumValueIndex = token.Value<int>();
                     else
@@ -256,33 +452,34 @@ namespace Patina.Editor.Commands
                         if (index >= 0)
                             sp.enumValueIndex = index;
                         else
-                            throw new ArgumentException($"Enum value '{enumStr}' not found in property enum names");
+                            throw new ArgumentException(
+                                $"Enum value '{enumStr}' not found in property enum names"
+                            );
                     }
                     break;
                 case SerializedPropertyType.ObjectReference:
-                    if (token.Type == JTokenType.Null)
-                    {
-                        sp.objectReferenceValue = null;
-                    }
-                    else
-                    {
-                        string valStr = token.Value<string>();
-                        if (valStr.StartsWith("Assets/"))
-                        {
-                            sp.objectReferenceValue = AssetDatabase.LoadAssetAtPath<UnityEngine.Object>(valStr);
-                        }
-                        else
-                        {
-                            string path = AssetDatabase.GUIDToAssetPath(valStr);
-                            if (!string.IsNullOrEmpty(path))
-                                sp.objectReferenceValue = AssetDatabase.LoadAssetAtPath<UnityEngine.Object>(path);
-                            else
-                                throw new ArgumentException($"Could not resolve object reference from: '{valStr}'");
-                        }
-                    }
+                    if (
+                        !ObjectReferenceResolver.TryResolve(
+                            token,
+                            expectedType,
+                            context,
+                            out UnityEngine.Object resolvedValue,
+                            out string resolveError
+                        )
+                    )
+                        throw new ArgumentException($"Field '{fieldName}': {resolveError}");
+
+                    sp.objectReferenceValue = resolvedValue;
+
+                    if (resolvedValue != null && sp.objectReferenceValue == null)
+                        throw new ArgumentException(
+                            $"Unity rejected the assignment of {resolvedValue.GetType().FullName} to field '{fieldName}', type mismatch"
+                        );
                     break;
                 default:
-                    throw new NotSupportedException($"SerializedPropertyType {sp.propertyType} is not supported");
+                    throw new NotSupportedException(
+                        $"SerializedPropertyType {sp.propertyType} is not supported"
+                    );
             }
         }
 
@@ -312,7 +509,11 @@ namespace Patina.Editor.Commands
         {
             if (token is JArray arr && arr.Count >= 3)
             {
-                return new Vector3(arr[0].Value<float>(), arr[1].Value<float>(), arr[2].Value<float>());
+                return new Vector3(
+                    arr[0].Value<float>(),
+                    arr[1].Value<float>(),
+                    arr[2].Value<float>()
+                );
             }
             throw new ArgumentException("Vector3 must be a JSON array [x, y, z]");
         }
@@ -321,7 +522,12 @@ namespace Patina.Editor.Commands
         {
             if (token is JArray arr && arr.Count >= 4)
             {
-                return new Vector4(arr[0].Value<float>(), arr[1].Value<float>(), arr[2].Value<float>(), arr[3].Value<float>());
+                return new Vector4(
+                    arr[0].Value<float>(),
+                    arr[1].Value<float>(),
+                    arr[2].Value<float>(),
+                    arr[3].Value<float>()
+                );
             }
             throw new ArgumentException("Vector4 must be a JSON array [x, y, z, w]");
         }
@@ -330,7 +536,12 @@ namespace Patina.Editor.Commands
         {
             if (token is JArray arr && arr.Count >= 4)
             {
-                return new Quaternion(arr[0].Value<float>(), arr[1].Value<float>(), arr[2].Value<float>(), arr[3].Value<float>());
+                return new Quaternion(
+                    arr[0].Value<float>(),
+                    arr[1].Value<float>(),
+                    arr[2].Value<float>(),
+                    arr[3].Value<float>()
+                );
             }
             throw new ArgumentException("Quaternion must be a JSON array [x, y, z, w]");
         }
