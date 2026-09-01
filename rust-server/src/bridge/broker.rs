@@ -2028,6 +2028,59 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn assembly_reload_parks_session_and_replays_request_script_reload() {
+        // Same rationale as assembly_reload_parks_session_and_replays_read_request
+        // above: a raw (heartbeat-silent) session needs heartbeat_timeout and
+        // reload_grace both raised to 5s to survive the pre-park and post-resume
+        // halves of this test without being evicted first.
+        let mut config = test_config();
+        config.heartbeat_timeout = Duration::from_secs(5);
+        config.reload_grace = Duration::from_secs(5);
+        let (address, broker) = start_broker(config).await;
+        let (mut unity_reader, mut unity_writer) =
+            connect_unity_raw(address, "a", "E:/Projects/A", 7, 0).await;
+        let (mut agent_reader, mut agent_writer) = connect_agent(address, "E:/Projects/A").await;
+        wait_for_sessions(&mut agent_reader, &mut agent_writer, 1).await;
+
+        request(
+            &mut agent_writer,
+            "reload-1",
+            "request_script_reload",
+            Some("E:/Projects/A"),
+            Some("a"),
+        )
+        .await;
+        read_matching_request(&mut unity_reader, "reload-1").await;
+
+        write_json(
+            &mut unity_writer,
+            &json!({"type":"unregister","sessionId":"a","reason":"assemblyReload"}),
+        )
+        .await
+        .unwrap();
+        wait_for_session_status(&mut agent_reader, &mut agent_writer, "a", "reloading").await;
+
+        let (mut resumed_reader, mut resumed_writer) =
+            connect_unity_raw(address, "a", "E:/Projects/A", 7, 1).await;
+        let replayed = read_matching_request(&mut resumed_reader, "reload-1").await;
+        assert_eq!(replayed["request"]["command"], "request_script_reload");
+        write_json(
+            &mut resumed_writer,
+            &ok("reload-1".to_string(), json!({"reloaded": true})),
+        )
+        .await
+        .unwrap();
+
+        let response = read_json(&mut agent_reader).await.unwrap().unwrap();
+        assert_eq!(response["id"], "reload-1");
+        assert_eq!(response["success"], true);
+        assert_eq!(response["result"]["reloaded"], true);
+
+        wait_for_resumed(&mut agent_reader, &mut agent_writer, "a").await;
+        broker.abort();
+    }
+
+    #[tokio::test]
     async fn assembly_reload_fails_in_flight_write_command_with_reload_interrupted() {
         // Raw (heartbeat-silent) session, so test_config()'s 90ms eviction budget
         // has to cover everything from registration to the unregister frame: a

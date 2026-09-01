@@ -77,7 +77,7 @@ Patina keeps the advertised MCP surface compact so hosts do not need to load eve
 | `patina_call` | Execute a catalog command with JSON parameters |
 | `patina_health` | Inspect Patina version, command count, bridge port, optional Unity editor state, and bridge diagnostics |
 
-The 86 commands below are available through `patina_capabilities` and `patina_call`.
+The 87 commands below are available through `patina_capabilities` and `patina_call`.
 
 ### Scene
 
@@ -183,10 +183,11 @@ To point a serialized field at another component inside the same prefab, pass an
 | `create_script` | Create a new C# script from a template (`monobehaviour`, `scriptableobject`, `editor_window`, `plain_class`, `interface`) or verbatim content |
 | `resolve_script_type` | Resolve a MonoScript GUID and asset path by its fully qualified C# type |
 | `force_recompile` | Trigger a Unity script recompile via `AssetDatabase.Refresh(ForceUpdate)` |
-| `compile_and_get_errors` | Trigger script recompile and return compiler errors only |
+| `compile_and_get_errors` | Trigger script recompile and return compiler errors only; also returns `compilationRan`, `domainReloadObserved`, and `reloadCount` |
 | `get_compilation_errors` | Get the list of current compiler errors and warnings |
 | `get_script_content` | Read the content of a script file in the project |
 | `get_assembly_types` | List all types declared in a specific assembly |
+| `request_script_reload` | Request a domain reload via `EditorUtility.RequestScriptReload()` and return once it completes, enabling observation of reload-time errors |
 
 ### Scriptable Objects
 
@@ -218,7 +219,7 @@ To point a serialized field at another component inside the same prefab, pass an
 | Tool | What it does |
 |------|-------------|
 | `log_to_console` | Emit a message to the Unity Console (`info`, `warning`, or `error`) |
-| `get_console_logs` | Read buffered console entries; filterable by type, capped by `max_results` |
+| `get_console_logs` | Read buffered console entries with per-entry `phase` field (`normal`, `reloadTeardown`, `reloadStartup`); filterable by type, capped by `max_results`; includes `reloadWindowEntryCount` |
 | `clear_console` | Clear all console log entries |
 
 ### Editor State & Control

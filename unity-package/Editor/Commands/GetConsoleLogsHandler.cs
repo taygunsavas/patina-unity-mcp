@@ -1,5 +1,5 @@
-using Newtonsoft.Json.Linq;
 using System.Threading.Tasks;
+using Newtonsoft.Json.Linq;
 
 namespace Patina.Editor.Commands
 {
@@ -7,18 +7,21 @@ namespace Patina.Editor.Commands
     {
         public Task<object> HandleAsync(JObject parameters)
         {
-            string filter = parameters != null && parameters.TryGetValue("filter", out JToken filterToken)
-                ? filterToken.Value<string>() ?? "all"
-                : "all";
+            string filter =
+                parameters != null && parameters.TryGetValue("filter", out JToken filterToken)
+                    ? filterToken.Value<string>() ?? "all"
+                    : "all";
 
-            int maxResults = parameters != null && parameters.TryGetValue("max_results", out JToken maxToken)
-                ? maxToken.Value<int>()
-                : 20;
+            int maxResults =
+                parameters != null && parameters.TryGetValue("max_results", out JToken maxToken)
+                    ? maxToken.Value<int>()
+                    : 20;
 
-            bool includeStackTrace = parameters != null &&
-                parameters.TryGetValue("include_stack_trace", out JToken stackToken) &&
-                stackToken.Type != JTokenType.Null &&
-                stackToken.Value<bool>();
+            bool includeStackTrace =
+                parameters != null
+                && parameters.TryGetValue("include_stack_trace", out JToken stackToken)
+                && stackToken.Type != JTokenType.Null
+                && stackToken.Value<bool>();
 
             var logEntries = ConsoleLogBuffer.GetEntries(filter, maxResults);
 
@@ -29,17 +32,23 @@ namespace Patina.Editor.Commands
                 {
                     ["type"] = entry.Type,
                     ["message"] = entry.Message,
-                    ["timestamp"] = entry.Timestamp
+                    ["timestamp"] = entry.Timestamp,
+                    ["phase"] = entry.Phase,
                 };
                 if (includeStackTrace)
                     obj["stackTrace"] = entry.StackTrace;
                 entries.Add(obj);
             }
 
+            int reloadWindowEntryCount = ConsoleLogBuffer
+                .GetReloadWindowEntries(int.MaxValue)
+                .Length;
+
             object result = new JObject
             {
                 ["totalReturned"] = entries.Count,
-                ["entries"] = entries
+                ["reloadWindowEntryCount"] = reloadWindowEntryCount,
+                ["entries"] = entries,
             };
 
             return Task.FromResult(result);

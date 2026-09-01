@@ -157,6 +157,7 @@ namespace Patina.Editor
             RegisterHandler("get_script_content", new GetScriptContentHandler());
             RegisterHandler("get_assembly_types", new GetAssemblyTypesHandler());
             RegisterHandler("force_recompile", new ForceRecompileHandler());
+            RegisterHandler("request_script_reload", new RequestScriptReloadHandler());
             // STO-35 — Scene Validation & Health Report
             RegisterHandler("validate_scene", new ValidateSceneHandler());
             RegisterHandler("get_scene_stats", new GetSceneStatsHandler());
