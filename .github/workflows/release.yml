@@ -555,6 +555,24 @@ jobs:
           name: release-changelog
           path: .
 
+      - name: Name binary assets per platform
+        shell: pwsh
+        run: |
+          $assets = [ordered]@{
+            "artifacts/patina-server-x86_64-win/patina-server.exe" = "patina-server-x86_64-win.exe"
+            "artifacts/patina-server-x86_64-linux/patina-server" = "patina-server-x86_64-linux"
+            "artifacts/patina-server-aarch64-macos/patina-server" = "patina-server-aarch64-macos"
+          }
+
+          $releaseBinaryDirectory = "release-binaries"
+          New-Item -ItemType Directory -Force -Path $releaseBinaryDirectory | Out-Null
+          foreach ($source in $assets.Keys) {
+            if (-not (Test-Path -LiteralPath $source -PathType Leaf)) {
+              throw "Expected binary artifact $source is missing."
+            }
+            Copy-Item -LiteralPath $source -Destination (Join-Path $releaseBinaryDirectory $assets[$source]) -Force
+          }
+
       - name: Publish GitHub release assets
         uses: softprops/action-gh-release@v3
         with:
@@ -564,6 +582,6 @@ jobs:
             CHANGELOG.md
             dist/*.tgz
             dist/*.zip
-            artifacts/patina-server-x86_64-win/patina-server.exe
-            artifacts/patina-server-x86_64-linux/patina-server
-            artifacts/patina-server-aarch64-macos/patina-server
+            release-binaries/patina-server-x86_64-win.exe
+            release-binaries/patina-server-x86_64-linux
+            release-binaries/patina-server-aarch64-macos
