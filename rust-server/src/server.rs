@@ -175,7 +175,9 @@ const SERVER_INSTRUCTIONS: &str = concat!(
     "Use patina_capabilities to discover commands, then patina_call to execute them. ",
     "For Patina bugs, missing commands, or workflow gaps, ask the user before filing feedback. ",
     "With approval, follow repository rules, search existing issues, avoid duplicates, and include versions, host, repro steps, expected/actual behavior, and relevant errors. ",
-    "Issues: https://github.com/taygunsavas/patina-unity-mcp/issues"
+    "Issues: https://github.com/taygunsavas/patina-unity-mcp/issues. ",
+    "Write prefabs with edit_prefab_asset (it never opens a stage); if you do enter a prefab stage, leave it with close_prefab_stage, since a dirty stage closed by hand via StageUtility.GoToMainStage() in editor script locks Unity behind a modal dialog. ",
+    "A clean compile_and_get_errors result does not by itself mean the project is clean, since the command window may contain no domain reload at all and reload-time OnEnable/OnDisable errors would never surface. To check those, call request_script_reload and then read get_console_logs."
 );
 
 #[tool_router]

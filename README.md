@@ -77,7 +77,7 @@ Patina keeps the advertised MCP surface compact so hosts do not need to load eve
 | `patina_call` | Execute a catalog command with JSON parameters |
 | `patina_health` | Inspect Patina version, command count, bridge port, optional Unity editor state, and bridge diagnostics |
 
-The 86 commands below are available through `patina_capabilities` and `patina_call`.
+The 87 commands below are available through `patina_capabilities` and `patina_call`.
 
 ### Scene
 
@@ -130,10 +130,28 @@ The 86 commands below are available through `patina_capabilities` and `patina_ca
 | `unpack_prefab` | Sever a prefab instance link; `outermost` (default) or `completely` |
 | `apply_prefab_overrides` | Apply all instance overrides back to the source prefab asset on disk |
 | `revert_prefab_overrides` | Restore a prefab instance to match its source asset |
-| `list_prefab_components` | List component types and instance IDs on a prefab asset |
-| `edit_prefab_asset` | Perform a batch of edit operations (add/remove component, add/remove child, set field) on a prefab asset |
-| `open_prefab_stage` | Open a prefab asset in Unity's prefab stage for editing |
-| `close_prefab_stage` | Close Unity's current active prefab stage, optionally saving changes |
+| `list_prefab_components` | List component types and instance IDs on a prefab asset; optionally includes child GameObjects with transform paths |
+| `edit_prefab_asset` | Perform a batch of edit operations (add/remove component, add/remove child, set field) on a prefab asset, including object-reference fields |
+| `open_prefab_stage` | Open a prefab asset in Unity's prefab stage for editing; exit using `close_prefab_stage` |
+| `close_prefab_stage` | Close the active prefab stage; `save_changes` parameter resolves dirty stages without Unity's blocking save prompt, giving save or discard decision |
+
+**Example: Set a component reference within a prefab.**
+
+To point a serialized field at another component inside the same prefab, pass an `edit_prefab_asset` action with `set_field` and an object reference value. The `transform_path` inside `value` is resolved against the prefab root, not against the action's own `transform_path`:
+
+```json
+{
+  "asset_path": "Assets/Prefabs/MyPrefab.prefab",
+  "actions": [
+    {
+      "action_type": "set_field",
+      "component_type": "MyNamespace.MyComponent",
+      "field_name": "targetReference",
+      "value": {"transform_path": "Container/Button", "component_type": "MyNamespace.TargetComponent"}
+    }
+  ]
+}
+```
 
 ### Assets
 
@@ -165,10 +183,11 @@ The 86 commands below are available through `patina_capabilities` and `patina_ca
 | `create_script` | Create a new C# script from a template (`monobehaviour`, `scriptableobject`, `editor_window`, `plain_class`, `interface`) or verbatim content |
 | `resolve_script_type` | Resolve a MonoScript GUID and asset path by its fully qualified C# type |
 | `force_recompile` | Trigger a Unity script recompile via `AssetDatabase.Refresh(ForceUpdate)` |
-| `compile_and_get_errors` | Trigger script recompile and return compiler errors only |
+| `compile_and_get_errors` | Trigger script recompile and return compiler errors only; also returns `compilationRan`, `domainReloadObserved`, and `reloadCount` |
 | `get_compilation_errors` | Get the list of current compiler errors and warnings |
 | `get_script_content` | Read the content of a script file in the project |
 | `get_assembly_types` | List all types declared in a specific assembly |
+| `request_script_reload` | Request a domain reload via `EditorUtility.RequestScriptReload()` and return once it completes, enabling observation of reload-time errors |
 
 ### Scriptable Objects
 
@@ -200,7 +219,7 @@ The 86 commands below are available through `patina_capabilities` and `patina_ca
 | Tool | What it does |
 |------|-------------|
 | `log_to_console` | Emit a message to the Unity Console (`info`, `warning`, or `error`) |
-| `get_console_logs` | Read buffered console entries; filterable by type, capped by `max_results` |
+| `get_console_logs` | Read buffered console entries with per-entry `phase` field (`normal`, `reloadTeardown`, `reloadStartup`); filterable by type, capped by `max_results`; includes `reloadWindowEntryCount` |
 | `clear_console` | Clear all console log entries |
 
 ### Editor State & Control
@@ -269,6 +288,16 @@ The setup window also detects stale entries, missing hosts, and provides a clean
 ## Troubleshooting
 
 If a Patina call reports `EDITOR_BLOCKED`, or mentions that Unity may be waiting on a modal dialog, check the Unity Editor for a save-changes prompt or other blocking popup. Patina cannot safely run queued editor commands while Unity is waiting for user input. Resolve the Unity prompt, then retry the MCP command or run `patina_health` with `{"include_unity_state": true}`.
+
+### Prefab Stage Save Dialogs
+
+Patina addresses dirty prefab stages by responding to the save question programmatically rather than blocking on a modal. When you call `close_prefab_stage`, the `save_changes` parameter directly determines the outcome: `true` saves, `false` (default) discards changes. This applies only to that command call and does not alter Editor behavior when a human is working manually.
+
+Once a modal dialog appears, Unity's main thread is blocked and remains blocked until a human closes it. Every queued command processes through the same blocked thread, so prevention is the only real solution. For agent-written editor scripts, the safe pattern is to write prefabs using `PrefabUtility.LoadPrefabContents`, apply changes to a `SerializedObject`, save with `PrefabUtility.SaveAsPrefabAsset`, then `PrefabUtility.UnloadPrefabContents`. This approach never opens a prefab stage. If a stage must be opened, close it with `close_prefab_stage`. Leaving a dirty stage and manually calling `StageUtility.GoToMainStage()` will lock the Editor.
+
+Unity offers a startup flag, `-automated`, which disables dialogs process-wide. While this may be suitable for an Editor driven entirely by agents, it creates problems in hybrid workflows where a human and agent share the same Editor: unsaved changes trigger no prompts, and some operations silently cancel. Patina does not require `-automated`. Per-command dialog answering works reliably without it and behaves correctly even in an Editor opened with `-automated`.
+
+To check the current Editor state and dialog automation status, call `patina_health` and examine `broker.sessions[].automated` in the default output, or `isAutomatedMode` and `dialogAutomationAvailable` when passing `{"include_unity_state": true}`.
 
 ## Roadmap
 

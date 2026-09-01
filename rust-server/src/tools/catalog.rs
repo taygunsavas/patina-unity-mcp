@@ -18,9 +18,9 @@ use crate::tools::{
     ListAnimationClipsArgs, ListPrefabComponentsArgs, LogToConsoleArgs, MoveAssetArgs,
     NewSceneArgs, OpenPrefabStageArgs, OpenSceneArgs, QueryGameObjectsArgs, RedoArgs,
     RefreshAssetDatabaseArgs, RemoveComponentArgs, RenameAssetArgs, ReparentGameObjectArgs,
-    ResolveScriptTypeArgs, RevertPrefabOverridesArgs, RunTestsArgs, SaveSceneArgs,
-    SetActiveStateArgs, SetAnimatorParameterArgs, SetAssetLabelsArgs, SetBuildScenesArgs,
-    SetBuildTargetArgs, SetLayerArgs, SetMaterialPropertyArgs, SetPlayModeArgs,
+    RequestScriptReloadArgs, ResolveScriptTypeArgs, RevertPrefabOverridesArgs, RunTestsArgs,
+    SaveSceneArgs, SetActiveStateArgs, SetAnimatorParameterArgs, SetAssetLabelsArgs,
+    SetBuildScenesArgs, SetBuildTargetArgs, SetLayerArgs, SetMaterialPropertyArgs, SetPlayModeArgs,
     SetPlayerSettingsArgs, SetPropertyArgs, SetScriptableObjectFieldArgs, SetSelectionArgs,
     SetTagArgs, SetTransformArgs, UndoArgs, UnpackPrefabArgs, ValidateAssetsArgs,
     ValidateSceneArgs,
@@ -70,14 +70,17 @@ pub fn command_count() -> usize {
 
 /// True when `command` is safe to hold and automatically replay against a Unity
 /// session that is mid assembly-reload. Deliberately conservative: only reads
-/// (and the three compile/refresh triggers, which are themselves idempotent)
-/// qualify. Every command that mutates project or scene state must fail fast
-/// with `SESSION_RELOADING` instead of being replayed, or a write could apply
-/// twice.
+/// (and the four compile/refresh/reload triggers, which are themselves
+/// idempotent) qualify. Every command that mutates project or scene state must
+/// fail fast with `SESSION_RELOADING` instead of being replayed, or a write
+/// could apply twice.
 pub fn is_reload_replay_safe(command: &str) -> bool {
     matches!(
         command,
-        "compile_and_get_errors" | "force_recompile" | "refresh_asset_database"
+        "compile_and_get_errors"
+            | "force_recompile"
+            | "refresh_asset_database"
+            | "request_script_reload"
     ) || command.starts_with("get_")
         || command.starts_with("find_")
         || command.starts_with("list_")
@@ -129,7 +132,7 @@ pub fn query(
     })
 }
 
-static COMMANDS: [CommandSpec; 86] = [
+static COMMANDS: [CommandSpec; 87] = [
     command!(
         "log_to_console",
         "console",
@@ -272,7 +275,7 @@ static COMMANDS: [CommandSpec; 86] = [
         "refresh_asset_database",
         "asset",
         RefreshAssetDatabaseArgs,
-        "Trigger AssetDatabase.Refresh."
+        "Trigger AssetDatabase.Refresh. This does not force a domain reload, so a clean result here does not cover reload-time OnEnable/OnDisable errors; use request_script_reload for that."
     ),
     command!(
         "set_asset_labels",
@@ -386,7 +389,7 @@ static COMMANDS: [CommandSpec; 86] = [
         "get_console_logs",
         "console",
         GetConsoleLogsArgs,
-        "Read buffered Unity console log entries."
+        "Read buffered Unity console log entries, including ones logged during a domain reload window; each entry carries a phase of normal, reloadTeardown, or reloadStartup."
     ),
     command!(
         "execute_menu_item",
@@ -532,7 +535,13 @@ static COMMANDS: [CommandSpec; 86] = [
         "force_recompile",
         "script",
         ForceRecompileArgs,
-        "Trigger a Unity script recompile."
+        "Trigger a Unity script recompile. A clean result does not guarantee a domain reload happened, so it does not cover reload-time OnEnable/OnDisable errors; use request_script_reload for that."
+    ),
+    command!(
+        "request_script_reload",
+        "script",
+        RequestScriptReloadArgs,
+        "Force a real domain reload and return once it has completed, so reload-time OnEnable/OnDisable errors become observable. Read them afterwards with get_console_logs."
     ),
     command!(
         "validate_scene",
@@ -598,7 +607,7 @@ static COMMANDS: [CommandSpec; 86] = [
         "compile_and_get_errors",
         "script",
         CompileAndGetErrorsArgs,
-        "Trigger compilation and return compiler errors only."
+        "Trigger compilation and return compiler errors only. A clean result does not cover reload-time OnEnable/OnDisable errors when no domain reload actually happened in the window; check the compilationRan and domainReloadObserved fields on the result to see whether anything did, and use request_script_reload if you need to force one."
     ),
     command!(
         "resolve_script_type",
@@ -610,25 +619,25 @@ static COMMANDS: [CommandSpec; 86] = [
         "list_prefab_components",
         "prefab",
         ListPrefabComponentsArgs,
-        "List components on a prefab asset."
+        "List components on a prefab asset, optionally including child transform paths."
     ),
     command!(
         "edit_prefab_asset",
         "prefab",
         EditPrefabAssetArgs,
-        "Batch edit a prefab asset through Unity APIs."
+        "Batch edit a prefab asset through Unity APIs, including object-reference fields."
     ),
     command!(
         "open_prefab_stage",
         "prefab",
         OpenPrefabStageArgs,
-        "Open a prefab asset in Unity's prefab stage."
+        "Open a prefab asset in Unity's prefab stage. Leaving the stage dirty and calling StageUtility.GoToMainStage() by hand from editor script locks the Editor behind a modal; use close_prefab_stage to exit instead."
     ),
     command!(
         "close_prefab_stage",
         "prefab",
         ClosePrefabStageArgs,
-        "Close the active prefab stage."
+        "Close the active prefab stage. A dirty stage is resolved programmatically instead of raising Unity's blocking save prompt: save_changes=true saves, false discards."
     ),
     command!(
         "validate_assets",
@@ -637,3 +646,19 @@ static COMMANDS: [CommandSpec; 86] = [
         "Validate a prefab asset or folder recursively."
     ),
 ];
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn request_script_reload_is_reload_replay_safe() {
+        assert!(is_reload_replay_safe("request_script_reload"));
+    }
+
+    #[test]
+    fn request_script_reload_is_in_catalog_under_script_category() {
+        let command = find_command("request_script_reload").expect("command should be registered");
+        assert_eq!(command.category, "script");
+    }
+}

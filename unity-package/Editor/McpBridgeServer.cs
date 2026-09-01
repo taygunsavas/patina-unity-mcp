@@ -108,6 +108,9 @@ namespace Patina.Editor
         private static bool s_loggedBrokerRelaunchSuspended;
         private static bool s_sawSigkillInFailureSeries;
 
+        public static readonly bool IsAutomatedMode =
+            Array.IndexOf(Environment.GetCommandLineArgs(), "-automated") >= 0;
+
         private sealed class SessionMetadata
         {
             public string Workspace;
@@ -115,6 +118,7 @@ namespace Patina.Editor
             public string BrokerBinary;
             public int UnityPid;
             public string PackageVersion;
+            public bool Automated;
         }
 
         public static int Port => DefaultPort;
@@ -124,6 +128,7 @@ namespace Patina.Editor
         public static string LocalSessionHealth => s_health;
         public static string LastError => s_lastError;
         public static BridgeRuntimeState RuntimeState => GetStatusSnapshot().State;
+        public static int ReloadCount => s_reloadCount;
 
         static McpBridgeServer()
         {
@@ -401,6 +406,7 @@ namespace Patina.Editor
                                 unityPid = metadata.UnityPid,
                                 packageVersion = metadata.PackageVersion,
                                 reloadCount = s_reloadCount,
+                                automated = metadata.Automated,
                             }
                         )
                     );
@@ -972,6 +978,7 @@ namespace Patina.Editor
                         )
                         ?.version
                     ?? "unknown",
+                Automated = IsAutomatedMode,
             };
         }
 

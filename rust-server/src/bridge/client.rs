@@ -439,7 +439,7 @@ impl BridgeClient {
 /// operation that triggers one. A held request replayed after an assembly
 /// reload (see broker.rs) needs this room too, since it does not start
 /// running until the reload itself has already finished.
-const LONG_RUNNING_COMMANDS: [&str; 9] = [
+const LONG_RUNNING_COMMANDS: [&str; 10] = [
     "compile_and_get_errors",
     "force_recompile",
     "refresh_asset_database",
@@ -449,6 +449,7 @@ const LONG_RUNNING_COMMANDS: [&str; 9] = [
     "execute_menu_item",
     "validate_assets",
     "create_script",
+    "request_script_reload",
 ];
 
 /// Which workspace, if any, to put on the envelope. The MCP process working
@@ -933,6 +934,14 @@ mod tests {
             Duration::from_secs(60)
         );
         assert_eq!(request_timeout_for("set_property"), Duration::from_secs(60));
+    }
+
+    #[test]
+    fn request_script_reload_gets_extended_request_timeout() {
+        assert_eq!(
+            request_timeout_for("request_script_reload"),
+            Duration::from_secs(180)
+        );
     }
 
     #[test]

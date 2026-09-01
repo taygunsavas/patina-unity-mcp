@@ -1,5 +1,5 @@
-using Newtonsoft.Json.Linq;
 using System.Threading.Tasks;
+using Newtonsoft.Json.Linq;
 using UnityEditor;
 using UnityEngine;
 
@@ -24,9 +24,12 @@ namespace Patina.Editor.Commands
                     ["hasCompileErrors"] = EditorUtility.scriptCompilationFailed,
                     ["mainThreadUpdateAgeSeconds"] = mainThreadUpdateAgeSeconds,
                     ["mainThreadQueuePendingCount"] = mainThreadQueuePendingCount,
-                    ["blockedByModalDialogLikely"] = mainThreadUpdateAgeSeconds >= MainThreadQueue.BlockedThresholdSeconds,
+                    ["blockedByModalDialogLikely"] =
+                        mainThreadUpdateAgeSeconds >= MainThreadQueue.BlockedThresholdSeconds,
                     ["unityVersion"] = Application.unityVersion,
-                    ["projectPath"] = Application.dataPath
+                    ["projectPath"] = Application.dataPath,
+                    ["isAutomatedMode"] = McpBridgeServer.IsAutomatedMode,
+                    ["dialogAutomationAvailable"] = DialogAutomation.IsAvailable,
                 };
             });
         }
