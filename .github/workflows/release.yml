@@ -420,6 +420,9 @@ jobs:
             $registryUrl = "https://registry.npmjs.org/"
           }
 
+          $packageName = "com.taygunsavas.patina-unity-mcp"
+          $packageVersion = "${{ needs.verify.outputs.version }}"
+
           $tarballs = @(Get-ChildItem dist -Filter *.tgz -File)
           if ($tarballs.Count -ne 1) {
             throw "Expected exactly one packaged tarball to publish, found $($tarballs.Count)."
@@ -442,7 +445,16 @@ jobs:
           ) | Set-Content -Path $tempNpmrc -Encoding ascii
 
           $env:NPM_CONFIG_USERCONFIG = $tempNpmrc
-          npm publish $tarball --access public --registry $registryUrl
+
+          npm view "$packageName@$packageVersion" version --registry $registryUrl --prefer-online *> $null
+          if ($LASTEXITCODE -eq 0) {
+            Write-Host "$packageName@$packageVersion is already on $registryUrl, skipping publish."
+          } else {
+            npm publish $tarball --access public --registry $registryUrl
+            if ($LASTEXITCODE -ne 0) {
+              throw "npm publish failed with exit code $LASTEXITCODE."
+            }
+          }
 
       - name: Verify published npm tarball signature
         shell: pwsh
@@ -454,9 +466,24 @@ jobs:
 
           $packageName = "com.taygunsavas.patina-unity-mcp"
           $packageVersion = "${{ needs.verify.outputs.version }}"
+
+          $availabilityTimeout = [TimeSpan]::FromMinutes(30)
+          $availabilityDeadline = (Get-Date).Add($availabilityTimeout)
+          while ($true) {
+            npm view "$packageName@$packageVersion" version --registry $registryUrl --prefer-online *> $null
+            if ($LASTEXITCODE -eq 0) {
+              break
+            }
+            if ((Get-Date) -ge $availabilityDeadline) {
+              throw "$packageName@$packageVersion did not become available on $registryUrl within $($availabilityTimeout.TotalMinutes) minutes."
+            }
+            Write-Host "Waiting for $packageName@$packageVersion to become available on $registryUrl."
+            Start-Sleep -Seconds 15
+          }
+
           $verificationDirectory = Join-Path $env:RUNNER_TEMP "patina-npm-verification"
           New-Item -ItemType Directory -Force -Path $verificationDirectory | Out-Null
-          npm pack "$packageName@$packageVersion" --pack-destination $verificationDirectory --registry $registryUrl
+          npm pack "$packageName@$packageVersion" --pack-destination $verificationDirectory --registry $registryUrl --prefer-online
 
           $tarballs = @(Get-ChildItem $verificationDirectory -Filter *.tgz -File)
           if ($tarballs.Count -ne 1) {
