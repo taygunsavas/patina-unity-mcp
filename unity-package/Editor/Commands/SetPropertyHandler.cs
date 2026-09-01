@@ -49,9 +49,21 @@ namespace Patina.Editor.Commands
                     BindingFlags.Public | BindingFlags.Instance
                 );
 
+                var refContext = new ObjectReferenceContext
+                {
+                    SearchRoot = go.transform.root.gameObject,
+                    SelfAssetPath = null,
+                    AllowSceneObjects = true,
+                };
+
                 if (prop != null && prop.CanWrite)
                 {
-                    object converted = ConvertValue(capturedValue, prop.PropertyType);
+                    object converted = ConvertValue(
+                        capturedValue,
+                        prop.PropertyType,
+                        refContext,
+                        capturedPropName
+                    );
                     prop.SetValue(comp, converted);
                 }
                 else
@@ -65,7 +77,12 @@ namespace Patina.Editor.Commands
                             $"Property or field '{capturedPropName}' not found on '{capturedCompType}'"
                         );
 
-                    object converted = ConvertValue(capturedValue, field.FieldType);
+                    object converted = ConvertValue(
+                        capturedValue,
+                        field.FieldType,
+                        refContext,
+                        capturedPropName
+                    );
                     field.SetValue(comp, converted);
                 }
 
@@ -83,8 +100,28 @@ namespace Patina.Editor.Commands
             return result;
         }
 
-        private static object ConvertValue(JToken token, Type targetType)
+        private static object ConvertValue(
+            JToken token,
+            Type targetType,
+            ObjectReferenceContext context,
+            string propertyName
+        )
         {
+            if (typeof(UnityEngine.Object).IsAssignableFrom(targetType))
+            {
+                if (
+                    !ObjectReferenceResolver.TryResolve(
+                        token,
+                        targetType,
+                        context,
+                        out UnityEngine.Object resolved,
+                        out string error
+                    )
+                )
+                    throw new ArgumentException($"Property '{propertyName}': {error}");
+                return resolved;
+            }
+
             if (token == null || token.Type == JTokenType.Null)
                 throw new ArgumentException("value is required");
 
@@ -127,18 +164,37 @@ namespace Patina.Editor.Commands
                 );
             }
             if (targetType == typeof(bool))
+            {
+                ObjectReferenceResolver.EnsureScalar(token, $"Property '{propertyName}'");
                 return token.Value<bool>();
+            }
             if (targetType == typeof(int))
+            {
+                ObjectReferenceResolver.EnsureScalar(token, $"Property '{propertyName}'");
                 return token.Value<int>();
+            }
             if (targetType == typeof(float))
+            {
+                ObjectReferenceResolver.EnsureScalar(token, $"Property '{propertyName}'");
                 return token.Value<float>();
+            }
             if (targetType == typeof(double))
+            {
+                ObjectReferenceResolver.EnsureScalar(token, $"Property '{propertyName}'");
                 return token.Value<double>();
+            }
             if (targetType == typeof(string))
+            {
+                ObjectReferenceResolver.EnsureScalar(token, $"Property '{propertyName}'");
                 return token.Value<string>();
+            }
             if (targetType.IsEnum)
+            {
+                ObjectReferenceResolver.EnsureScalar(token, $"Property '{propertyName}'");
                 return Enum.Parse(targetType, token.Value<string>(), ignoreCase: true);
+            }
 
+            ObjectReferenceResolver.EnsureScalar(token, $"Property '{propertyName}'");
             return Convert.ChangeType(
                 token.Value<string>(),
                 targetType,

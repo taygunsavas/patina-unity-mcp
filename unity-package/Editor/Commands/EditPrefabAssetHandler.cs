@@ -41,7 +41,10 @@ namespace Patina.Editor.Commands
                         string actionType = action["action_type"]?.Value<string>();
                         string transformPath = action["transform_path"]?.Value<string>();
 
-                        GameObject targetGo = FindGameObjectByPath(root, transformPath);
+                        GameObject targetGo = ObjectReferenceResolver.FindByPath(
+                            root,
+                            transformPath
+                        );
                         if (targetGo == null)
                             throw new InvalidOperationException(
                                 $"GameObject not found at path '{transformPath}' inside prefab"
@@ -132,21 +135,44 @@ namespace Patina.Editor.Commands
                                 var sp = so.FindProperty(fieldName);
                                 if (sp == null)
                                 {
-                                    var fieldInfo = comp.GetType()
-                                        .GetField(
-                                            fieldName,
-                                            BindingFlags.Public
-                                                | BindingFlags.NonPublic
-                                                | BindingFlags.Instance
-                                        );
+                                    var fieldInfo = FindFieldInHierarchy(comp.GetType(), fieldName);
                                     if (fieldInfo != null)
                                     {
-                                        object converted = ConvertValue(
-                                            value,
-                                            fieldInfo.FieldType,
-                                            fieldName
-                                        );
-                                        fieldInfo.SetValue(comp, converted);
+                                        if (
+                                            typeof(UnityEngine.Object).IsAssignableFrom(
+                                                fieldInfo.FieldType
+                                            )
+                                        )
+                                        {
+                                            var refContext = new ObjectReferenceContext
+                                            {
+                                                SearchRoot = root,
+                                                SelfAssetPath = capturedPath,
+                                                AllowSceneObjects = false,
+                                            };
+                                            if (
+                                                !ObjectReferenceResolver.TryResolve(
+                                                    value,
+                                                    fieldInfo.FieldType,
+                                                    refContext,
+                                                    out UnityEngine.Object resolvedRef,
+                                                    out string refError
+                                                )
+                                            )
+                                                throw new ArgumentException(
+                                                    $"Field '{fieldName}': {refError}"
+                                                );
+                                            fieldInfo.SetValue(comp, resolvedRef);
+                                        }
+                                        else
+                                        {
+                                            object converted = ConvertValue(
+                                                value,
+                                                fieldInfo.FieldType,
+                                                fieldName
+                                            );
+                                            fieldInfo.SetValue(comp, converted);
+                                        }
                                         EditorUtility.SetDirty(comp);
                                     }
                                     else
@@ -158,7 +184,24 @@ namespace Patina.Editor.Commands
                                 }
                                 else
                                 {
-                                    SetSerializedPropertyValue(sp, value);
+                                    Type expectedType = ResolveFieldType(
+                                        comp.GetType(),
+                                        sp.propertyPath,
+                                        sp
+                                    );
+                                    var refContext = new ObjectReferenceContext
+                                    {
+                                        SearchRoot = root,
+                                        SelfAssetPath = capturedPath,
+                                        AllowSceneObjects = false,
+                                    };
+                                    SetSerializedPropertyValue(
+                                        sp,
+                                        value,
+                                        expectedType,
+                                        refContext,
+                                        fieldName
+                                    );
                                     so.ApplyModifiedProperties();
                                 }
                                 break;
@@ -185,28 +228,91 @@ namespace Patina.Editor.Commands
             });
         }
 
-        private static GameObject FindGameObjectByPath(GameObject root, string path)
-        {
-            if (string.IsNullOrEmpty(path) || path == "/" || path == ".")
-                return root;
-
-            Transform current = root.transform;
-            string[] parts = path.Split('/');
-            foreach (var part in parts)
-            {
-                if (string.IsNullOrEmpty(part))
-                    continue;
-                Transform child = current.Find(part);
-                if (child == null)
-                    return null;
-                current = child;
-            }
-            return current.gameObject;
-        }
-
         private static Type FindType(string typeName)
         {
             return AddComponentHandler.FindType(typeName);
+        }
+
+        private static FieldInfo FindFieldInHierarchy(Type type, string fieldName)
+        {
+            for (Type current = type; current != null; current = current.BaseType)
+            {
+                FieldInfo field = current.GetField(
+                    fieldName,
+                    BindingFlags.Public
+                        | BindingFlags.NonPublic
+                        | BindingFlags.Instance
+                        | BindingFlags.DeclaredOnly
+                );
+                if (field != null)
+                    return field;
+            }
+            return null;
+        }
+
+        private static Type ResolveFieldType(
+            Type componentType,
+            string propertyPath,
+            SerializedProperty sp
+        )
+        {
+            string[] segments = propertyPath.Split('.');
+            Type currentType = componentType;
+
+            for (int i = 0; i < segments.Length; i++)
+            {
+                string segment = segments[i];
+
+                if (
+                    segment == "Array"
+                    && i + 1 < segments.Length
+                    && segments[i + 1].StartsWith("data[")
+                )
+                {
+                    currentType = GetElementType(currentType);
+                    if (currentType == null)
+                        break;
+                    i++;
+                    continue;
+                }
+
+                FieldInfo field = FindFieldInHierarchy(currentType, segment);
+                if (field == null)
+                {
+                    currentType = null;
+                    break;
+                }
+                currentType = field.FieldType;
+            }
+
+            if (currentType != null)
+                return currentType;
+
+            string spType = sp.type;
+            if (spType != null && spType.StartsWith("PPtr<$") && spType.EndsWith(">"))
+            {
+                string innerTypeName = spType.Substring(6, spType.Length - 7);
+                Type resolved = AddComponentHandler.FindType(innerTypeName);
+                if (resolved != null)
+                    return resolved;
+            }
+
+            return typeof(UnityEngine.Object);
+        }
+
+        private static Type GetElementType(Type collectionType)
+        {
+            if (collectionType == null)
+                return null;
+            if (collectionType.IsArray)
+                return collectionType.GetElementType();
+            if (collectionType.IsGenericType)
+            {
+                Type[] args = collectionType.GetGenericArguments();
+                if (args.Length == 1)
+                    return args[0];
+            }
+            return null;
         }
 
         private static object ConvertValue(JToken token, Type targetType, string fieldName)
@@ -225,15 +331,30 @@ namespace Patina.Editor.Commands
             }
 
             if (targetType == typeof(int) || targetType == typeof(long))
+            {
+                ObjectReferenceResolver.EnsureScalar(token, $"field '{fieldName}'");
                 return token.Value<int>();
+            }
             if (targetType == typeof(float))
+            {
+                ObjectReferenceResolver.EnsureScalar(token, $"field '{fieldName}'");
                 return token.Value<float>();
+            }
             if (targetType == typeof(double))
+            {
+                ObjectReferenceResolver.EnsureScalar(token, $"field '{fieldName}'");
                 return token.Value<double>();
+            }
             if (targetType == typeof(bool))
+            {
+                ObjectReferenceResolver.EnsureScalar(token, $"field '{fieldName}'");
                 return token.Value<bool>();
+            }
             if (targetType == typeof(string))
+            {
+                ObjectReferenceResolver.EnsureScalar(token, $"field '{fieldName}'");
                 return token.Value<string>();
+            }
 
             if (targetType == typeof(Vector2) && token is JArray a2 && a2.Count >= 2)
                 return new Vector2(a2[0].Value<float>(), a2[1].Value<float>());
@@ -264,6 +385,7 @@ namespace Patina.Editor.Commands
 
             if (targetType.IsEnum)
             {
+                ObjectReferenceResolver.EnsureScalar(token, $"field '{fieldName}'");
                 string strVal = token.Value<string>();
                 if (Enum.TryParse(targetType, strVal, ignoreCase: true, out var enumVal))
                     return enumVal;
@@ -277,20 +399,30 @@ namespace Patina.Editor.Commands
             );
         }
 
-        private static void SetSerializedPropertyValue(SerializedProperty sp, JToken token)
+        private static void SetSerializedPropertyValue(
+            SerializedProperty sp,
+            JToken token,
+            Type expectedType,
+            ObjectReferenceContext context,
+            string fieldName
+        )
         {
             switch (sp.propertyType)
             {
                 case SerializedPropertyType.Integer:
+                    ObjectReferenceResolver.EnsureScalar(token, $"field '{fieldName}'");
                     sp.intValue = token.Value<int>();
                     break;
                 case SerializedPropertyType.Boolean:
+                    ObjectReferenceResolver.EnsureScalar(token, $"field '{fieldName}'");
                     sp.boolValue = token.Value<bool>();
                     break;
                 case SerializedPropertyType.Float:
+                    ObjectReferenceResolver.EnsureScalar(token, $"field '{fieldName}'");
                     sp.floatValue = token.Value<float>();
                     break;
                 case SerializedPropertyType.String:
+                    ObjectReferenceResolver.EnsureScalar(token, $"field '{fieldName}'");
                     sp.stringValue = token.Value<string>();
                     break;
                 case SerializedPropertyType.Color:
@@ -309,6 +441,7 @@ namespace Patina.Editor.Commands
                     sp.quaternionValue = ParseQuaternion(token);
                     break;
                 case SerializedPropertyType.Enum:
+                    ObjectReferenceResolver.EnsureScalar(token, $"field '{fieldName}'");
                     if (token.Type == JTokenType.Integer)
                         sp.enumValueIndex = token.Value<int>();
                     else
@@ -325,30 +458,23 @@ namespace Patina.Editor.Commands
                     }
                     break;
                 case SerializedPropertyType.ObjectReference:
-                    if (token.Type == JTokenType.Null)
-                    {
-                        sp.objectReferenceValue = null;
-                    }
-                    else
-                    {
-                        string valStr = token.Value<string>();
-                        if (valStr.StartsWith("Assets/"))
-                        {
-                            sp.objectReferenceValue =
-                                AssetDatabase.LoadAssetAtPath<UnityEngine.Object>(valStr);
-                        }
-                        else
-                        {
-                            string path = AssetDatabase.GUIDToAssetPath(valStr);
-                            if (!string.IsNullOrEmpty(path))
-                                sp.objectReferenceValue =
-                                    AssetDatabase.LoadAssetAtPath<UnityEngine.Object>(path);
-                            else
-                                throw new ArgumentException(
-                                    $"Could not resolve object reference from: '{valStr}'"
-                                );
-                        }
-                    }
+                    if (
+                        !ObjectReferenceResolver.TryResolve(
+                            token,
+                            expectedType,
+                            context,
+                            out UnityEngine.Object resolvedValue,
+                            out string resolveError
+                        )
+                    )
+                        throw new ArgumentException($"Field '{fieldName}': {resolveError}");
+
+                    sp.objectReferenceValue = resolvedValue;
+
+                    if (resolvedValue != null && sp.objectReferenceValue == null)
+                        throw new ArgumentException(
+                            $"Unity rejected the assignment of {resolvedValue.GetType().FullName} to field '{fieldName}', type mismatch"
+                        );
                     break;
                 default:
                     throw new NotSupportedException(

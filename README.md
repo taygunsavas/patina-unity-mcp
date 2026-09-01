@@ -130,10 +130,28 @@ The 86 commands below are available through `patina_capabilities` and `patina_ca
 | `unpack_prefab` | Sever a prefab instance link; `outermost` (default) or `completely` |
 | `apply_prefab_overrides` | Apply all instance overrides back to the source prefab asset on disk |
 | `revert_prefab_overrides` | Restore a prefab instance to match its source asset |
-| `list_prefab_components` | List component types and instance IDs on a prefab asset |
-| `edit_prefab_asset` | Perform a batch of edit operations (add/remove component, add/remove child, set field) on a prefab asset |
+| `list_prefab_components` | List component types and instance IDs on a prefab asset; optionally includes child GameObjects with transform paths |
+| `edit_prefab_asset` | Perform a batch of edit operations (add/remove component, add/remove child, set field) on a prefab asset, including object-reference fields |
 | `open_prefab_stage` | Open a prefab asset in Unity's prefab stage for editing |
 | `close_prefab_stage` | Close Unity's current active prefab stage, optionally saving changes |
+
+**Example: Set a component reference within a prefab.**
+
+To point a serialized field at another component inside the same prefab, pass an `edit_prefab_asset` action with `set_field` and an object reference value. The `transform_path` inside `value` is resolved against the prefab root, not against the action's own `transform_path`:
+
+```json
+{
+  "asset_path": "Assets/Prefabs/MyPrefab.prefab",
+  "actions": [
+    {
+      "action_type": "set_field",
+      "component_type": "MyNamespace.MyComponent",
+      "field_name": "targetReference",
+      "value": {"transform_path": "Container/Button", "component_type": "MyNamespace.TargetComponent"}
+    }
+  ]
+}
+```
 
 ### Assets
 

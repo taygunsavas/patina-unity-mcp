@@ -99,6 +99,13 @@ namespace Patina.Editor.Commands
 
             Undo.RecordObject(comp, $"Set {propName}");
 
+            var refContext = new ObjectReferenceContext
+            {
+                SearchRoot = go.transform.root.gameObject,
+                SelfAssetPath = null,
+                AllowSceneObjects = true,
+            };
+
             Type t = comp.GetType();
             PropertyInfo prop = t.GetProperty(
                 propName,
@@ -106,7 +113,10 @@ namespace Patina.Editor.Commands
             );
             if (prop != null && prop.CanWrite)
             {
-                prop.SetValue(comp, ConvertValue(valueToken, prop.PropertyType));
+                prop.SetValue(
+                    comp,
+                    ConvertValue(valueToken, prop.PropertyType, refContext, propName)
+                );
             }
             else
             {
@@ -115,7 +125,10 @@ namespace Patina.Editor.Commands
                     throw new InvalidOperationException(
                         $"Property/field '{propName}' not found on '{compType}'"
                     );
-                field.SetValue(comp, ConvertValue(valueToken, field.FieldType));
+                field.SetValue(
+                    comp,
+                    ConvertValue(valueToken, field.FieldType, refContext, propName)
+                );
             }
 
             EditorUtility.SetDirty(comp);
@@ -131,8 +144,28 @@ namespace Patina.Editor.Commands
                 ["error"] = msg,
             };
 
-        internal static object ConvertValue(JToken token, Type targetType)
+        internal static object ConvertValue(
+            JToken token,
+            Type targetType,
+            ObjectReferenceContext context = null,
+            string propertyName = "value"
+        )
         {
+            if (typeof(UnityEngine.Object).IsAssignableFrom(targetType))
+            {
+                if (
+                    !ObjectReferenceResolver.TryResolve(
+                        token,
+                        targetType,
+                        context,
+                        out UnityEngine.Object resolved,
+                        out string error
+                    )
+                )
+                    throw new ArgumentException($"Property '{propertyName}': {error}");
+                return resolved;
+            }
+
             if (token == null || token.Type == JTokenType.Null)
                 throw new ArgumentException("value is required");
 
@@ -175,17 +208,36 @@ namespace Patina.Editor.Commands
                 );
             }
             if (targetType == typeof(bool))
+            {
+                ObjectReferenceResolver.EnsureScalar(token, $"Property '{propertyName}'");
                 return token.Value<bool>();
+            }
             if (targetType == typeof(int))
+            {
+                ObjectReferenceResolver.EnsureScalar(token, $"Property '{propertyName}'");
                 return token.Value<int>();
+            }
             if (targetType == typeof(float))
+            {
+                ObjectReferenceResolver.EnsureScalar(token, $"Property '{propertyName}'");
                 return token.Value<float>();
+            }
             if (targetType == typeof(double))
+            {
+                ObjectReferenceResolver.EnsureScalar(token, $"Property '{propertyName}'");
                 return token.Value<double>();
+            }
             if (targetType == typeof(string))
+            {
+                ObjectReferenceResolver.EnsureScalar(token, $"Property '{propertyName}'");
                 return token.Value<string>();
+            }
             if (targetType.IsEnum)
+            {
+                ObjectReferenceResolver.EnsureScalar(token, $"Property '{propertyName}'");
                 return Enum.Parse(targetType, token.Value<string>(), ignoreCase: true);
+            }
+            ObjectReferenceResolver.EnsureScalar(token, $"Property '{propertyName}'");
             return Convert.ChangeType(
                 token.Value<string>(),
                 targetType,

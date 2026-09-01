@@ -50,7 +50,18 @@ namespace Patina.Editor.Commands
                         $"Field '{capturedField}' is not serialized"
                     );
 
-                object converted = ConvertValue(capturedValue, field.FieldType, capturedField);
+                var refContext = new ObjectReferenceContext
+                {
+                    SearchRoot = null,
+                    SelfAssetPath = capturedPath,
+                    AllowSceneObjects = false,
+                };
+                object converted = ConvertValue(
+                    capturedValue,
+                    field.FieldType,
+                    capturedField,
+                    refContext
+                );
                 field.SetValue(so, converted);
 
                 EditorUtility.SetDirty(so);
@@ -65,9 +76,28 @@ namespace Patina.Editor.Commands
             });
         }
 
-        private static object ConvertValue(JToken token, Type targetType, string fieldName)
+        private static object ConvertValue(
+            JToken token,
+            Type targetType,
+            string fieldName,
+            ObjectReferenceContext context
+        )
         {
-            // Normalize: if agent sent an array as a JSON string (e.g. "[9,8,7]"), unwrap it first
+            if (typeof(UnityEngine.Object).IsAssignableFrom(targetType))
+            {
+                if (
+                    !ObjectReferenceResolver.TryResolve(
+                        token,
+                        targetType,
+                        context,
+                        out UnityEngine.Object resolved,
+                        out string error
+                    )
+                )
+                    throw new ArgumentException($"Field '{fieldName}': {error}");
+                return resolved;
+            }
+
             if (token is JValue jv && jv.Type == JTokenType.String)
             {
                 string s = jv.Value<string>();
@@ -77,22 +107,35 @@ namespace Patina.Editor.Commands
                     {
                         token = JArray.Parse(s);
                     }
-                    catch
-                    { /* fall through to type-specific error */
-                    }
+                    catch { }
                 }
             }
 
             if (targetType == typeof(int) || targetType == typeof(long))
+            {
+                ObjectReferenceResolver.EnsureScalar(token, $"Field '{fieldName}'");
                 return token.Value<int>();
+            }
             if (targetType == typeof(float))
+            {
+                ObjectReferenceResolver.EnsureScalar(token, $"Field '{fieldName}'");
                 return token.Value<float>();
+            }
             if (targetType == typeof(double))
+            {
+                ObjectReferenceResolver.EnsureScalar(token, $"Field '{fieldName}'");
                 return token.Value<double>();
+            }
             if (targetType == typeof(bool))
+            {
+                ObjectReferenceResolver.EnsureScalar(token, $"Field '{fieldName}'");
                 return token.Value<bool>();
+            }
             if (targetType == typeof(string))
+            {
+                ObjectReferenceResolver.EnsureScalar(token, $"Field '{fieldName}'");
                 return token.Value<string>();
+            }
 
             if (targetType == typeof(Vector2) && token is JArray a2 && a2.Count >= 2)
                 return new Vector2(a2[0].Value<float>(), a2[1].Value<float>());
@@ -123,6 +166,7 @@ namespace Patina.Editor.Commands
 
             if (targetType.IsEnum)
             {
+                ObjectReferenceResolver.EnsureScalar(token, $"Field '{fieldName}'");
                 string strVal = token.Value<string>();
                 if (Enum.TryParse(targetType, strVal, ignoreCase: true, out var enumVal))
                     return enumVal;

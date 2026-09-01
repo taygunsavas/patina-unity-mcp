@@ -13,12 +13,16 @@ namespace Patina.Editor.Commands
         {
             string assetPath = parameters?["asset_path"]?.Value<string>();
             string transformPath = parameters?["transform_path"]?.Value<string>();
+            bool includeChildren = parameters?["include_children"]?.Value<bool>() ?? false;
+            int maxDepth = parameters?["max_depth"]?.Value<int>() ?? 0;
 
             if (string.IsNullOrEmpty(assetPath))
                 throw new ArgumentException("asset_path is required");
 
             string capturedPath = assetPath;
             string capturedTransform = transformPath;
+            bool capturedIncludeChildren = includeChildren;
+            int capturedMaxDepth = maxDepth;
 
             return await MainThreadQueue.EnqueueAsync(() =>
             {
@@ -28,7 +32,7 @@ namespace Patina.Editor.Commands
                         $"Prefab asset not found at path: {capturedPath}"
                     );
 
-                GameObject targetGo = FindGameObjectByPath(root, capturedTransform);
+                GameObject targetGo = ObjectReferenceResolver.FindByPath(root, capturedTransform);
                 if (targetGo == null)
                     throw new InvalidOperationException(
                         $"GameObject not found at path '{capturedTransform}' inside prefab"
@@ -56,32 +60,76 @@ namespace Patina.Editor.Commands
                     );
                 }
 
-                return new JObject
+                var result = new JObject
                 {
                     ["assetPath"] = capturedPath,
                     ["transformPath"] = capturedTransform ?? string.Empty,
                     ["components"] = componentsArray,
                 };
+
+                if (capturedIncludeChildren)
+                {
+                    var childrenArray = new JArray();
+                    CollectChildren(
+                        targetGo.transform,
+                        targetGo.transform,
+                        1,
+                        capturedMaxDepth,
+                        childrenArray
+                    );
+                    result["children"] = childrenArray;
+                }
+
+                return result;
             });
         }
 
-        private static GameObject FindGameObjectByPath(GameObject root, string path)
+        private static void CollectChildren(
+            Transform relativeTo,
+            Transform current,
+            int depth,
+            int maxDepth,
+            JArray output
+        )
         {
-            if (string.IsNullOrEmpty(path) || path == "/" || path == ".")
-                return root;
+            if (maxDepth > 0 && depth > maxDepth)
+                return;
 
-            Transform current = root.transform;
-            string[] parts = path.Split('/');
-            foreach (var part in parts)
+            for (int i = 0; i < current.childCount; i++)
             {
-                if (string.IsNullOrEmpty(part))
-                    continue;
-                Transform child = current.Find(part);
-                if (child == null)
-                    return null;
-                current = child;
+                Transform child = current.GetChild(i);
+                string relativePath = GetRelativePath(relativeTo, child);
+
+                var componentTypes = new JArray();
+                Component[] comps = child.GetComponents<Component>();
+                foreach (Component comp in comps)
+                {
+                    componentTypes.Add(comp == null ? "MissingScript" : comp.GetType().FullName);
+                }
+
+                output.Add(
+                    new JObject
+                    {
+                        ["transformPath"] = relativePath,
+                        ["name"] = child.gameObject.name,
+                        ["components"] = componentTypes,
+                    }
+                );
+
+                CollectChildren(relativeTo, child, depth + 1, maxDepth, output);
             }
-            return current.gameObject;
+        }
+
+        private static string GetRelativePath(Transform relativeTo, Transform target)
+        {
+            var parts = new List<string>();
+            Transform t = target;
+            while (t != null && t != relativeTo)
+            {
+                parts.Insert(0, t.name);
+                t = t.parent;
+            }
+            return string.Join("/", parts);
         }
     }
 }

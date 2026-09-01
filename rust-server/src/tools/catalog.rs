@@ -610,13 +610,13 @@ static COMMANDS: [CommandSpec; 86] = [
         "list_prefab_components",
         "prefab",
         ListPrefabComponentsArgs,
-        "List components on a prefab asset."
+        "List components on a prefab asset, optionally including child transform paths."
     ),
     command!(
         "edit_prefab_asset",
         "prefab",
         EditPrefabAssetArgs,
-        "Batch edit a prefab asset through Unity APIs."
+        "Batch edit a prefab asset through Unity APIs, including object-reference fields."
     ),
     command!(
         "open_prefab_stage",
