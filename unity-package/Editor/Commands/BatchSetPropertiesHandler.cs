@@ -1,8 +1,8 @@
-using Newtonsoft.Json.Linq;
 using System;
 using System.Globalization;
 using System.Reflection;
 using System.Threading.Tasks;
+using Newtonsoft.Json.Linq;
 using UnityEditor;
 using UnityEngine;
 
@@ -20,7 +20,8 @@ namespace Patina.Editor.Commands
             if (operationsToken.Count > MaxOperations)
                 throw new ArgumentException($"operations exceeds max of {MaxOperations}");
 
-            string undoLabel = parameters?["undo_label"]?.Value<string>() ?? "Patina Batch SetProperties";
+            string undoLabel =
+                parameters?["undo_label"]?.Value<string>() ?? "Patina Batch SetProperties";
             var ops = operationsToken;
             string capturedLabel = undoLabel;
 
@@ -37,22 +38,35 @@ namespace Patina.Editor.Commands
                     string propName = opToken["property_name"]?.Value<string>();
                     JToken valueToken = opToken["value"];
 
-                    if (string.IsNullOrEmpty(goName) || string.IsNullOrEmpty(compType) || string.IsNullOrEmpty(propName))
+                    if (
+                        string.IsNullOrEmpty(goName)
+                        || string.IsNullOrEmpty(compType)
+                        || string.IsNullOrEmpty(propName)
+                    )
                     {
-                        results.Add(ItemError(goName, compType, propName, "game_object_name, component_type, and property_name are required"));
+                        results.Add(
+                            ItemError(
+                                goName,
+                                compType,
+                                propName,
+                                "game_object_name, component_type, and property_name are required"
+                            )
+                        );
                         continue;
                     }
 
                     try
                     {
                         ApplyProperty(goName, compType, propName, valueToken);
-                        results.Add(new JObject
-                        {
-                            ["gameObject"] = goName,
-                            ["component"] = compType,
-                            ["property"] = propName,
-                            ["success"] = true
-                        });
+                        results.Add(
+                            new JObject
+                            {
+                                ["gameObject"] = goName,
+                                ["component"] = compType,
+                                ["property"] = propName,
+                                ["success"] = true,
+                            }
+                        );
                     }
                     catch (Exception ex)
                     {
@@ -62,26 +76,34 @@ namespace Patina.Editor.Commands
 
                 Undo.CollapseUndoOperations(groupIndex);
 
-                return new JObject
-                {
-                    ["success"] = true,
-                    ["results"] = results
-                };
+                return new JObject { ["success"] = true, ["results"] = results };
             });
         }
 
-        private static void ApplyProperty(string goName, string compType, string propName, JToken valueToken)
+        private static void ApplyProperty(
+            string goName,
+            string compType,
+            string propName,
+            JToken valueToken
+        )
         {
             GameObject go = GameObjectFinder.Find(goName);
-            if (go == null) throw new InvalidOperationException($"GameObject '{goName}' not found");
+            if (go == null)
+                throw new InvalidOperationException($"GameObject '{goName}' not found");
 
             Component comp = go.GetComponent(compType);
-            if (comp == null) throw new InvalidOperationException($"Component '{compType}' not found on '{goName}'");
+            if (comp == null)
+                throw new InvalidOperationException(
+                    $"Component '{compType}' not found on '{goName}'"
+                );
 
             Undo.RecordObject(comp, $"Set {propName}");
 
             Type t = comp.GetType();
-            PropertyInfo prop = t.GetProperty(propName, BindingFlags.Public | BindingFlags.Instance);
+            PropertyInfo prop = t.GetProperty(
+                propName,
+                BindingFlags.Public | BindingFlags.Instance
+            );
             if (prop != null && prop.CanWrite)
             {
                 prop.SetValue(comp, ConvertValue(valueToken, prop.PropertyType));
@@ -89,7 +111,10 @@ namespace Patina.Editor.Commands
             else
             {
                 FieldInfo field = t.GetField(propName, BindingFlags.Public | BindingFlags.Instance);
-                if (field == null) throw new InvalidOperationException($"Property/field '{propName}' not found on '{compType}'");
+                if (field == null)
+                    throw new InvalidOperationException(
+                        $"Property/field '{propName}' not found on '{compType}'"
+                    );
                 field.SetValue(comp, ConvertValue(valueToken, field.FieldType));
             }
 
@@ -103,7 +128,7 @@ namespace Patina.Editor.Commands
                 ["component"] = comp ?? string.Empty,
                 ["property"] = prop ?? string.Empty,
                 ["success"] = false,
-                ["error"] = msg
+                ["error"] = msg,
             };
 
         internal static object ConvertValue(JToken token, Type targetType)
@@ -114,45 +139,76 @@ namespace Patina.Editor.Commands
             if (targetType == typeof(Vector3))
             {
                 JArray a = ParseAsArray(token, "Vector3");
-                if (a.Count < 3) throw new ArgumentException("Vector3 requires at least 3 elements");
+                if (a.Count < 3)
+                    throw new ArgumentException("Vector3 requires at least 3 elements");
                 return new Vector3(a[0].Value<float>(), a[1].Value<float>(), a[2].Value<float>());
             }
             if (targetType == typeof(Vector2))
             {
                 JArray a = ParseAsArray(token, "Vector2");
-                if (a.Count < 2) throw new ArgumentException("Vector2 requires at least 2 elements");
+                if (a.Count < 2)
+                    throw new ArgumentException("Vector2 requires at least 2 elements");
                 return new Vector2(a[0].Value<float>(), a[1].Value<float>());
             }
             if (targetType == typeof(Color))
             {
                 JArray a = ParseAsArray(token, "Color");
-                if (a.Count < 3) throw new ArgumentException("Color requires at least 3 elements");
-                return new Color(a[0].Value<float>(), a[1].Value<float>(), a[2].Value<float>(),
-                    a.Count > 3 ? a[3].Value<float>() : 1f);
+                if (a.Count < 3)
+                    throw new ArgumentException("Color requires at least 3 elements");
+                return new Color(
+                    a[0].Value<float>(),
+                    a[1].Value<float>(),
+                    a[2].Value<float>(),
+                    a.Count > 3 ? a[3].Value<float>() : 1f
+                );
             }
             if (targetType == typeof(Quaternion))
             {
                 JArray a = ParseAsArray(token, "Quaternion");
-                if (a.Count < 4) throw new ArgumentException("Quaternion requires at least 4 elements");
-                return new Quaternion(a[0].Value<float>(), a[1].Value<float>(),
-                    a[2].Value<float>(), a[3].Value<float>());
+                if (a.Count < 4)
+                    throw new ArgumentException("Quaternion requires at least 4 elements");
+                return new Quaternion(
+                    a[0].Value<float>(),
+                    a[1].Value<float>(),
+                    a[2].Value<float>(),
+                    a[3].Value<float>()
+                );
             }
-            if (targetType == typeof(bool)) return token.Value<bool>();
-            if (targetType == typeof(int)) return token.Value<int>();
-            if (targetType == typeof(float)) return token.Value<float>();
-            if (targetType == typeof(double)) return token.Value<double>();
-            if (targetType == typeof(string)) return token.Value<string>();
-            if (targetType.IsEnum) return Enum.Parse(targetType, token.Value<string>(), ignoreCase: true);
-            return Convert.ChangeType(token.Value<string>(), targetType, CultureInfo.InvariantCulture);
+            if (targetType == typeof(bool))
+                return token.Value<bool>();
+            if (targetType == typeof(int))
+                return token.Value<int>();
+            if (targetType == typeof(float))
+                return token.Value<float>();
+            if (targetType == typeof(double))
+                return token.Value<double>();
+            if (targetType == typeof(string))
+                return token.Value<string>();
+            if (targetType.IsEnum)
+                return Enum.Parse(targetType, token.Value<string>(), ignoreCase: true);
+            return Convert.ChangeType(
+                token.Value<string>(),
+                targetType,
+                CultureInfo.InvariantCulture
+            );
         }
 
         private static JArray ParseAsArray(JToken token, string typeName)
         {
-            if (token is JArray arr) return arr;
+            if (token is JArray arr)
+                return arr;
             if (token.Type == JTokenType.String)
             {
-                try { return JArray.Parse(token.Value<string>()); }
-                catch (Exception ex) { throw new ArgumentException($"{typeName} value must be a JSON array or a JSON-array-encoded string: {ex.Message}"); }
+                try
+                {
+                    return JArray.Parse(token.Value<string>());
+                }
+                catch (Exception ex)
+                {
+                    throw new ArgumentException(
+                        $"{typeName} value must be a JSON array or a JSON-array-encoded string: {ex.Message}"
+                    );
+                }
             }
             throw new ArgumentException($"{typeName} value must be an array");
         }

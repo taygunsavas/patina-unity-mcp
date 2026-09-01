@@ -1,8 +1,8 @@
-using Newtonsoft.Json.Linq;
 using System;
 using System.Globalization;
 using System.Reflection;
 using System.Threading.Tasks;
+using Newtonsoft.Json.Linq;
 using UnityEditor;
 using UnityEngine;
 
@@ -37,12 +37,17 @@ namespace Patina.Editor.Commands
 
                 Component comp = go.GetComponent(capturedCompType);
                 if (comp == null)
-                    throw new InvalidOperationException($"Component '{capturedCompType}' not found on '{capturedGoName}'");
+                    throw new InvalidOperationException(
+                        $"Component '{capturedCompType}' not found on '{capturedGoName}'"
+                    );
 
                 Undo.RecordObject(comp, $"Set {capturedPropName}");
 
                 Type compTypeObj = comp.GetType();
-                PropertyInfo prop = compTypeObj.GetProperty(capturedPropName, BindingFlags.Public | BindingFlags.Instance);
+                PropertyInfo prop = compTypeObj.GetProperty(
+                    capturedPropName,
+                    BindingFlags.Public | BindingFlags.Instance
+                );
 
                 if (prop != null && prop.CanWrite)
                 {
@@ -51,9 +56,14 @@ namespace Patina.Editor.Commands
                 }
                 else
                 {
-                    FieldInfo field = compTypeObj.GetField(capturedPropName, BindingFlags.Public | BindingFlags.Instance);
+                    FieldInfo field = compTypeObj.GetField(
+                        capturedPropName,
+                        BindingFlags.Public | BindingFlags.Instance
+                    );
                     if (field == null)
-                        throw new InvalidOperationException($"Property or field '{capturedPropName}' not found on '{capturedCompType}'");
+                        throw new InvalidOperationException(
+                            $"Property or field '{capturedPropName}' not found on '{capturedCompType}'"
+                        );
 
                     object converted = ConvertValue(capturedValue, field.FieldType);
                     field.SetValue(comp, converted);
@@ -66,7 +76,7 @@ namespace Patina.Editor.Commands
                     ["gameObject"] = capturedGoName,
                     ["component"] = capturedCompType,
                     ["property"] = capturedPropName,
-                    ["success"] = true
+                    ["success"] = true,
                 };
             });
 
@@ -81,26 +91,40 @@ namespace Patina.Editor.Commands
             if (targetType == typeof(Vector3))
             {
                 JArray a = ParseAsArray(token, "Vector3");
-                if (a.Count < 3) throw new ArgumentException("Vector3 requires at least 3 elements");
+                if (a.Count < 3)
+                    throw new ArgumentException("Vector3 requires at least 3 elements");
                 return new Vector3(a[0].Value<float>(), a[1].Value<float>(), a[2].Value<float>());
             }
             if (targetType == typeof(Vector2))
             {
                 JArray a = ParseAsArray(token, "Vector2");
-                if (a.Count < 2) throw new ArgumentException("Vector2 requires at least 2 elements");
+                if (a.Count < 2)
+                    throw new ArgumentException("Vector2 requires at least 2 elements");
                 return new Vector2(a[0].Value<float>(), a[1].Value<float>());
             }
             if (targetType == typeof(Color))
             {
                 JArray a = ParseAsArray(token, "Color");
-                if (a.Count < 3) throw new ArgumentException("Color requires at least 3 elements");
-                return new Color(a[0].Value<float>(), a[1].Value<float>(), a[2].Value<float>(), a.Count > 3 ? a[3].Value<float>() : 1f);
+                if (a.Count < 3)
+                    throw new ArgumentException("Color requires at least 3 elements");
+                return new Color(
+                    a[0].Value<float>(),
+                    a[1].Value<float>(),
+                    a[2].Value<float>(),
+                    a.Count > 3 ? a[3].Value<float>() : 1f
+                );
             }
             if (targetType == typeof(Quaternion))
             {
                 JArray a = ParseAsArray(token, "Quaternion");
-                if (a.Count < 4) throw new ArgumentException("Quaternion requires at least 4 elements");
-                return new Quaternion(a[0].Value<float>(), a[1].Value<float>(), a[2].Value<float>(), a[3].Value<float>());
+                if (a.Count < 4)
+                    throw new ArgumentException("Quaternion requires at least 4 elements");
+                return new Quaternion(
+                    a[0].Value<float>(),
+                    a[1].Value<float>(),
+                    a[2].Value<float>(),
+                    a[3].Value<float>()
+                );
             }
             if (targetType == typeof(bool))
                 return token.Value<bool>();
@@ -115,16 +139,29 @@ namespace Patina.Editor.Commands
             if (targetType.IsEnum)
                 return Enum.Parse(targetType, token.Value<string>(), ignoreCase: true);
 
-            return Convert.ChangeType(token.Value<string>(), targetType, CultureInfo.InvariantCulture);
+            return Convert.ChangeType(
+                token.Value<string>(),
+                targetType,
+                CultureInfo.InvariantCulture
+            );
         }
 
         private static JArray ParseAsArray(JToken token, string typeName)
         {
-            if (token is JArray arr) return arr;
+            if (token is JArray arr)
+                return arr;
             if (token.Type == JTokenType.String)
             {
-                try { return JArray.Parse(token.Value<string>()); }
-                catch (Exception ex) { throw new ArgumentException($"{typeName} value must be a JSON array or a JSON-array-encoded string: {ex.Message}"); }
+                try
+                {
+                    return JArray.Parse(token.Value<string>());
+                }
+                catch (Exception ex)
+                {
+                    throw new ArgumentException(
+                        $"{typeName} value must be a JSON array or a JSON-array-encoded string: {ex.Message}"
+                    );
+                }
             }
             throw new ArgumentException($"{typeName} value must be an array");
         }
