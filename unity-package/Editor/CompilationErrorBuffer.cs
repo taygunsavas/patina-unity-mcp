@@ -61,6 +61,16 @@ namespace Patina.Editor
                 LastCompilationStartedSessionStateKey,
                 DateTime.UtcNow.Ticks.ToString()
             );
+
+            // A new compilation batch is about to run: drop whatever the previous batch left
+            // behind so a since-fixed (or deleted) file's stale errors can't outlive it. Without
+            // this, s_entries only ever grew (see OnAssemblyCompilationFinished below), so a
+            // clean recompile kept reporting the last compile's errors forever.
+            lock (s_lock)
+            {
+                s_entries.Clear();
+                s_hasResults = false;
+            }
         }
 
         private static void OnAssemblyCompilationFinished(
@@ -68,16 +78,14 @@ namespace Patina.Editor
             CompilerMessage[] messages
         )
         {
-            if (messages == null || messages.Length == 0)
-                return;
-
             lock (s_lock)
             {
-                if (!s_hasResults)
-                {
-                    s_entries.Clear();
-                    s_hasResults = true;
-                }
+                // This assembly finished compiling as part of the current batch, whether or not
+                // it produced any messages - a clean result is still a real result.
+                s_hasResults = true;
+
+                if (messages == null || messages.Length == 0)
+                    return;
 
                 foreach (var msg in messages)
                 {
