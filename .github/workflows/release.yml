@@ -252,7 +252,7 @@ jobs:
             artifact-name: patina-server-x86_64-win
             output-name: patina-server.exe
             binary-path: rust-server/target/x86_64-pc-windows-msvc/release/patina-server.exe
-          - os: ubuntu-latest
+          - os: ubuntu-24.04
             rust-target: x86_64-unknown-linux-gnu
             artifact-name: patina-server-x86_64-linux
             output-name: patina-server
