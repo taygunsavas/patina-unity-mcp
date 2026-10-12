@@ -26,8 +26,14 @@ namespace Patina.Editor
     public static class TestResultBuffer
     {
         private static readonly object s_lock = new object();
-        private static readonly TestRunSnapshot s_editMode = new TestRunSnapshot { Results = new List<TestRunResult>() };
-        private static readonly TestRunSnapshot s_playMode = new TestRunSnapshot { Results = new List<TestRunResult>() };
+        private static readonly TestRunSnapshot s_editMode = new TestRunSnapshot
+        {
+            Results = new List<TestRunResult>(),
+        };
+        private static readonly TestRunSnapshot s_playMode = new TestRunSnapshot
+        {
+            Results = new List<TestRunResult>(),
+        };
 
         private static TestRunSnapshot StateFor(string mode)
         {
@@ -39,10 +45,10 @@ namespace Patina.Editor
             lock (s_lock)
             {
                 TestRunSnapshot state = StateFor(mode);
-                state.Results    = new List<TestRunResult>();
-                state.Running    = true;
-                state.RunId      = runId;
-                state.StartedAt  = DateTime.UtcNow;
+                state.Results = new List<TestRunResult>();
+                state.Running = true;
+                state.RunId = runId;
+                state.StartedAt = DateTime.UtcNow;
                 state.FinishedAt = null;
             }
         }
@@ -60,8 +66,8 @@ namespace Patina.Editor
             lock (s_lock)
             {
                 TestRunSnapshot state = StateFor(mode);
-                state.Results    = results;
-                state.Running    = false;
+                state.Results = results;
+                state.Running = false;
                 state.FinishedAt = DateTime.UtcNow;
             }
         }
@@ -73,11 +79,11 @@ namespace Patina.Editor
                 TestRunSnapshot state = StateFor(mode);
                 return new TestRunSnapshot
                 {
-                    Results    = state.Results,
-                    Running    = state.Running,
-                    RunId      = state.RunId,
-                    StartedAt  = state.StartedAt,
-                    FinishedAt = state.FinishedAt
+                    Results = state.Results,
+                    Running = state.Running,
+                    RunId = state.RunId,
+                    StartedAt = state.StartedAt,
+                    FinishedAt = state.FinishedAt,
                 };
             }
         }
@@ -124,7 +130,8 @@ namespace Patina.Editor
 
         private static int CountLeafTests(ITestAdaptor node)
         {
-            if (!node.IsSuite) return 1;
+            if (!node.IsSuite)
+                return 1;
             int count = 0;
             if (node.Children != null)
                 foreach (var child in node.Children)
@@ -149,14 +156,16 @@ namespace Patina.Editor
 
             if (!result.Test.IsSuite)
             {
-                _results.Add(new TestRunResult
-                {
-                    Name           = result.Test.Name,
-                    FullName       = result.Test.FullName,
-                    Status         = result.TestStatus.ToString(),
-                    DurationSeconds = result.Duration,
-                    Message        = result.Message
-                });
+                _results.Add(
+                    new TestRunResult
+                    {
+                        Name = result.Test.Name,
+                        FullName = result.Test.FullName,
+                        Status = result.TestStatus.ToString(),
+                        DurationSeconds = result.Duration,
+                        Message = result.Message,
+                    }
+                );
             }
         }
     }

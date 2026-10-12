@@ -1,7 +1,7 @@
-using Newtonsoft.Json.Linq;
 using System;
 using System.Collections.Generic;
 using System.Threading.Tasks;
+using Newtonsoft.Json.Linq;
 using UnityEditor;
 using UnityEditor.TestTools.TestRunner.Api;
 using UnityEngine;
@@ -23,9 +23,9 @@ namespace Patina.Editor.Commands
 
             return new JObject
             {
-                ["mode"]  = mode,
+                ["mode"] = mode,
                 ["count"] = tests.Count,
-                ["tests"] = tests
+                ["tests"] = tests,
             };
         }
 
@@ -33,17 +33,21 @@ namespace Patina.Editor.Commands
         {
             Task<JArray> pending = await MainThreadQueue.EnqueueAsync<Task<JArray>>(() =>
             {
-                var tcs  = new TaskCompletionSource<JArray>(
-                    TaskCreationOptions.RunContinuationsAsynchronously);
-                var api  = ScriptableObject.CreateInstance<TestRunnerApi>();
+                var tcs = new TaskCompletionSource<JArray>(
+                    TaskCreationOptions.RunContinuationsAsynchronously
+                );
+                var api = ScriptableObject.CreateInstance<TestRunnerApi>();
                 var testMode = mode == "PlayMode" ? TestMode.PlayMode : TestMode.EditMode;
 
-                api.RetrieveTestList(testMode, root =>
-                {
-                    var arr = new JArray();
-                    CollectTests(root, arr);
-                    tcs.TrySetResult(arr);
-                });
+                api.RetrieveTestList(
+                    testMode,
+                    root =>
+                    {
+                        var arr = new JArray();
+                        CollectTests(root, arr);
+                        tcs.TrySetResult(arr);
+                    }
+                );
 
                 return tcs.Task;
             });
@@ -59,14 +63,17 @@ namespace Patina.Editor.Commands
         {
             if (!node.IsSuite)
             {
-                arr.Add(new JObject
-                {
-                    ["name"]     = node.Name,
-                    ["fullName"] = node.FullName,
-                    ["category"] = node.Categories != null && node.Categories.Length > 0
-                        ? string.Join(",", node.Categories)
-                        : ""
-                });
+                arr.Add(
+                    new JObject
+                    {
+                        ["name"] = node.Name,
+                        ["fullName"] = node.FullName,
+                        ["category"] =
+                            node.Categories != null && node.Categories.Length > 0
+                                ? string.Join(",", node.Categories)
+                                : "",
+                    }
+                );
             }
             else
             {

@@ -1,8 +1,8 @@
-using Newtonsoft.Json.Linq;
 using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
+using Newtonsoft.Json.Linq;
 using UnityEditor;
 using UnityEditor.SceneManagement;
 using UnityEditor.TestTools.TestRunner.Api;
@@ -14,7 +14,7 @@ namespace Patina.Editor.Commands
     {
         public async Task<object> HandleAsync(JObject parameters)
         {
-            string mode   = parameters?["mode"]?.Value<string>() ?? "EditMode";
+            string mode = parameters?["mode"]?.Value<string>() ?? "EditMode";
             string filter = parameters?["filter"]?.Value<string>();
 
             if (mode != "EditMode" && mode != "PlayMode")
@@ -33,7 +33,8 @@ namespace Patina.Editor.Commands
 
                 if (matchedNames.Length == 0)
                     throw new ArgumentException(
-                        $"filter '{filter}' matched 0 tests in {mode} ({available.Count} tests available)");
+                        $"filter '{filter}' matched 0 tests in {mode} ({available.Count} tests available)"
+                    );
 
                 matchedCount = matchedNames.Length;
             }
@@ -42,18 +43,13 @@ namespace Patina.Editor.Commands
 
             return await MainThreadQueue.EnqueueAsync(() =>
             {
-                var api       = ScriptableObject.CreateInstance<TestRunnerApi>();
+                var api = ScriptableObject.CreateInstance<TestRunnerApi>();
                 var callbacks = new PatinaTestCallbacks(mode, runId, api);
                 api.RegisterCallbacks(callbacks);
 
-                var testMode = mode == "PlayMode"
-                    ? TestMode.PlayMode
-                    : TestMode.EditMode;
+                var testMode = mode == "PlayMode" ? TestMode.PlayMode : TestMode.EditMode;
 
-                var runFilter = new Filter
-                {
-                    testMode = testMode
-                };
+                var runFilter = new Filter { testMode = testMode };
 
                 if (matchedNames != null)
                     runFilter.testNames = matchedNames;
@@ -79,11 +75,11 @@ namespace Patina.Editor.Commands
 
                 return new JObject
                 {
-                    ["started"]      = true,
-                    ["runId"]        = runId,
-                    ["mode"]         = mode,
-                    ["filter"]       = filter ?? "",
-                    ["matchedCount"] = matchedCount
+                    ["started"] = true,
+                    ["runId"] = runId,
+                    ["mode"] = mode,
+                    ["filter"] = filter ?? "",
+                    ["matchedCount"] = matchedCount,
                 };
             });
         }
