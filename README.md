@@ -131,9 +131,23 @@ The 87 commands below are available through `patina_capabilities` and `patina_ca
 | `apply_prefab_overrides` | Apply all instance overrides back to the source prefab asset on disk |
 | `revert_prefab_overrides` | Restore a prefab instance to match its source asset |
 | `list_prefab_components` | List component types and instance IDs on a prefab asset; optionally includes child GameObjects with transform paths |
-| `edit_prefab_asset` | Perform a batch of edit operations (add/remove component, add/remove child, set field) on a prefab asset, including object-reference fields |
+| `edit_prefab_asset` | Perform a batch of edit operations (add/remove component, add/remove child, set field) on a prefab asset, including object-reference fields and GameObject-level `layer`, `tag`, `isStatic`, `name` and `activeSelf` |
 | `open_prefab_stage` | Open a prefab asset in Unity's prefab stage for editing; exit using `close_prefab_stage` |
 | `close_prefab_stage` | Close the active prefab stage; `save_changes` parameter resolves dirty stages without Unity's blocking save prompt, giving save or discard decision |
+
+**Example: Set GameObject-level values.**
+
+`set_field` targets the GameObject itself when `component_type` is omitted, `"GameObject"` or `"UnityEngine.GameObject"`. Supported `field_name` values are `layer` (index 0-31 or layer name), `tag`, `isStatic`, `name` and `activeSelf` (the prefab root name follows the asset file name, so `name` on the root is rejected). `add_child` also accepts optional `layer`, `tag` and `is_static`:
+
+```json
+{
+  "asset_path": "Assets/Prefabs/MyPrefab.prefab",
+  "actions": [
+    {"action_type": "add_child", "child_name": "Wall0", "layer": "Water", "tag": "Player", "is_static": true},
+    {"action_type": "set_field", "transform_path": "Wall0", "component_type": "UnityEngine.GameObject", "field_name": "layer", "value": 5}
+  ]
+}
+```
 
 **Example: Set a component reference within a prefab.**
 

@@ -62,17 +62,22 @@ pub struct EditPrefabAssetArgs {
 #[derive(Debug, Deserialize, Serialize, JsonSchema)]
 pub struct EditPrefabAssetAction {
     /// Action type: "add_component", "remove_component", "add_child", "remove_child", "set_field".
+    /// add_child also accepts optional layer, tag and is_static for the new child.
     pub action_type: String,
     /// Relative transform path, e.g. "Child/Grandchild" (optional, default root).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub transform_path: Option<String>,
-    /// Component type (required for add_component, remove_component, set_field).
+    /// Component type (required for add_component, remove_component, set_field on a component).
+    /// For set_field on the GameObject itself, omit it or pass "GameObject" or "UnityEngine.GameObject".
     #[serde(skip_serializing_if = "Option::is_none")]
     pub component_type: Option<String>,
-    /// Field name (required for set_field).
+    /// Field name (required for set_field). With a GameObject target the supported names are
+    /// "layer", "tag", "isStatic", "name" and "activeSelf" (case-insensitive). The prefab root name follows the asset file name,
+    /// so "name" on the root is rejected.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub field_name: Option<String>,
-    /// Field value (required for set_field). Scalar types: float → 1.5, bool → true, int → 42, string → "text";
+    /// Field value (required for set_field). GameObject target: layer → 0-31 or layer name such as "Water",
+    /// tag → registered tag string, isStatic and activeSelf → bool, name → string. Scalar types: float → 1.5, bool → true, int → 42, string → "text";
     /// arrays: Vector2 → [0.0,0.0], Vector3 → [0.0,0.0,0.0], Color → [1.0,0.0,0.0,1.0], Quaternion → [0.0,0.0,0.0,1.0].
     /// Object reference fields accept null to clear, "Assets/..." or "Packages/..." asset path, 32-char GUID,
     /// "Child/Grandchild" transform path relative to prefab root (resolves to GameObject or its component),
@@ -82,6 +87,15 @@ pub struct EditPrefabAssetAction {
     /// Child GameObject name (required for add_child).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub child_name: Option<String>,
+    /// Layer for the new child, an index 0-31 or a layer name (optional, add_child only).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub layer: Option<serde_json::Value>,
+    /// Tag for the new child, must be registered in Project Settings (optional, add_child only).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tag: Option<String>,
+    /// Mark the new child as static (optional, add_child only).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub is_static: Option<bool>,
 }
 
 /// The returned instanceId identifies the prefab asset object. It is not usable as a reference
