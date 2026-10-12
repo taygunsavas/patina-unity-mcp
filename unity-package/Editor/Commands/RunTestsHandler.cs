@@ -1,5 +1,7 @@
 using Newtonsoft.Json.Linq;
 using System;
+using System.Collections.Generic;
+using System.Linq;
 using System.Threading.Tasks;
 using UnityEditor;
 using UnityEditor.SceneManagement;
@@ -18,39 +20,78 @@ namespace Patina.Editor.Commands
             if (mode != "EditMode" && mode != "PlayMode")
                 throw new ArgumentException($"mode must be 'EditMode' or 'PlayMode', got: {mode}");
 
-            string capturedMode   = mode;
-            string capturedFilter = filter;
+            int? matchedCount = null;
+            string[] matchedNames = null;
+
+            if (!string.IsNullOrEmpty(filter))
+            {
+                JArray available = await GetTestListHandler.RetrieveTestsAsync(mode);
+                matchedNames = available
+                    .Where(t => MatchesFilter(t, filter))
+                    .Select(t => t.Value<string>("fullName"))
+                    .ToArray();
+
+                if (matchedNames.Length == 0)
+                    throw new ArgumentException(
+                        $"filter '{filter}' matched 0 tests in {mode} ({available.Count} tests available)");
+
+                matchedCount = matchedNames.Length;
+            }
+
+            string runId = Guid.NewGuid().ToString();
 
             return await MainThreadQueue.EnqueueAsync(() =>
             {
                 var api       = ScriptableObject.CreateInstance<TestRunnerApi>();
-                var callbacks = new PatinaTestCallbacks(capturedMode);
+                var callbacks = new PatinaTestCallbacks(mode, runId, api);
                 api.RegisterCallbacks(callbacks);
 
-                var testMode = capturedMode == "PlayMode"
+                var testMode = mode == "PlayMode"
                     ? TestMode.PlayMode
                     : TestMode.EditMode;
 
-                var filter = new Filter
+                var runFilter = new Filter
                 {
                     testMode = testMode
                 };
 
-                if (!string.IsNullOrEmpty(capturedFilter))
-                    filter.testNames = new[] { capturedFilter };
+                if (matchedNames != null)
+                    runFilter.testNames = matchedNames;
 
-                if (capturedMode == "PlayMode")
-                    EditorSceneManager.SaveOpenScenes();
+                bool began = false;
+                try
+                {
+                    if (mode == "PlayMode")
+                        EditorSceneManager.SaveOpenScenes();
 
-                api.Execute(new ExecutionSettings(filter));
+                    TestResultBuffer.BeginRun(mode, runId);
+                    began = true;
+                    api.Execute(new ExecutionSettings(runFilter));
+                }
+                catch
+                {
+                    if (began)
+                        TestResultBuffer.SetResults(mode, new List<TestRunResult>());
+
+                    callbacks.Release();
+                    throw;
+                }
 
                 return new JObject
                 {
-                    ["started"] = true,
-                    ["mode"]    = capturedMode,
-                    ["filter"]  = capturedFilter ?? ""
+                    ["started"]      = true,
+                    ["runId"]        = runId,
+                    ["mode"]         = mode,
+                    ["filter"]       = filter ?? "",
+                    ["matchedCount"] = matchedCount
                 };
             });
+        }
+
+        private static bool MatchesFilter(JToken test, string filter)
+        {
+            return test.Value<string>("name").Contains(filter, StringComparison.Ordinal)
+                || test.Value<string>("fullName").Contains(filter, StringComparison.Ordinal);
         }
     }
 }

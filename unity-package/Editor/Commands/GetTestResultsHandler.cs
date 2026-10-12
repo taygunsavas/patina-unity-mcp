@@ -14,7 +14,8 @@ namespace Patina.Editor.Commands
 
             return await MainThreadQueue.EnqueueAsync(() =>
             {
-                var (results, running) = TestResultBuffer.GetResults(capturedMode);
+                TestRunSnapshot snapshot = TestResultBuffer.GetResults(capturedMode);
+                var results = snapshot.Results;
 
                 int passed  = results.Count(r => r.Status == "Passed");
                 int failed  = results.Count(r => r.Status == "Failed");
@@ -36,13 +37,16 @@ namespace Patina.Editor.Commands
 
                 return new JObject
                 {
-                    ["mode"]    = capturedMode,
-                    ["total"]   = results.Count,
-                    ["passed"]  = passed,
-                    ["failed"]  = failed,
-                    ["skipped"] = skipped,
-                    ["running"] = running,
-                    ["results"] = arr
+                    ["mode"]       = capturedMode,
+                    ["total"]      = results.Count,
+                    ["passed"]     = passed,
+                    ["failed"]     = failed,
+                    ["skipped"]    = skipped,
+                    ["running"]    = snapshot.Running,
+                    ["runId"]      = snapshot.RunId,
+                    ["startedAt"]  = snapshot.StartedAt?.ToString("o"),
+                    ["finishedAt"] = snapshot.FinishedAt?.ToString("o"),
+                    ["results"]    = arr
                 };
             });
         }

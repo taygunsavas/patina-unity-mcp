@@ -571,13 +571,13 @@ static COMMANDS: [CommandSpec; 87] = [
         "run_tests",
         "test",
         RunTestsArgs,
-        "Start a Unity Test Runner execution."
+        "Start a Unity Test Runner execution. The optional filter is a case-sensitive substring of a test name or full name; a filter matching no tests returns an error. The response includes runId and matchedCount (null when no filter is given)."
     ),
     command!(
         "get_test_results",
         "test",
         GetTestResultsArgs,
-        "Return results from the most recent test run."
+        "Return results from the most recent test run, with runId, startedAt and finishedAt to identify the run. A domain reload during a run resets them to null with empty results, which means the run was lost."
     ),
     command!(
         "get_test_list",

@@ -10,6 +10,8 @@ namespace Patina.Editor.Commands
 {
     public sealed class GetTestListHandler : ICommandHandler
     {
+        private static readonly TimeSpan s_retrieveTimeout = TimeSpan.FromSeconds(30);
+
         public async Task<object> HandleAsync(JObject parameters)
         {
             string mode = parameters?["mode"]?.Value<string>() ?? "EditMode";
@@ -17,33 +19,40 @@ namespace Patina.Editor.Commands
             if (mode != "EditMode" && mode != "PlayMode")
                 throw new ArgumentException($"mode must be 'EditMode' or 'PlayMode', got: {mode}");
 
-            string capturedMode = mode;
+            JArray tests = await RetrieveTestsAsync(mode);
 
-            return await MainThreadQueue.EnqueueAsync<JObject>(() =>
+            return new JObject
             {
-                var tcs  = new System.Threading.Tasks.TaskCompletionSource<JArray>();
-                var api  = ScriptableObject.CreateInstance<TestRunnerApi>();
-                var testMode = capturedMode == "PlayMode" ? TestMode.PlayMode : TestMode.EditMode;
+                ["mode"]  = mode,
+                ["count"] = tests.Count,
+                ["tests"] = tests
+            };
+        }
 
-                api.RetrieveTestList(testMode, (root) =>
+        internal static async Task<JArray> RetrieveTestsAsync(string mode)
+        {
+            Task<JArray> pending = await MainThreadQueue.EnqueueAsync<Task<JArray>>(() =>
+            {
+                var tcs  = new TaskCompletionSource<JArray>(
+                    TaskCreationOptions.RunContinuationsAsynchronously);
+                var api  = ScriptableObject.CreateInstance<TestRunnerApi>();
+                var testMode = mode == "PlayMode" ? TestMode.PlayMode : TestMode.EditMode;
+
+                api.RetrieveTestList(testMode, root =>
                 {
                     var arr = new JArray();
                     CollectTests(root, arr);
                     tcs.TrySetResult(arr);
                 });
 
-                // RetrieveTestList calls the callback synchronously on main thread
-                var tests = tcs.Task.IsCompletedSuccessfully
-                    ? tcs.Task.Result
-                    : new JArray();
-
-                return new JObject
-                {
-                    ["mode"]  = capturedMode,
-                    ["count"] = tests.Count,
-                    ["tests"] = tests
-                };
+                return tcs.Task;
             });
+
+            Task finished = await Task.WhenAny(pending, Task.Delay(s_retrieveTimeout));
+            if (finished != pending)
+                throw new TimeoutException($"Timed out retrieving the {mode} test list");
+
+            return await pending;
         }
 
         private static void CollectTests(ITestAdaptor node, JArray arr)
