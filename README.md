@@ -131,9 +131,11 @@ The 87 commands below are available through `patina_capabilities` and `patina_ca
 | `apply_prefab_overrides` | Apply all instance overrides back to the source prefab asset on disk |
 | `revert_prefab_overrides` | Restore a prefab instance to match its source asset |
 | `list_prefab_components` | List component types and instance IDs on a prefab asset; optionally includes child GameObjects with transform paths |
-| `edit_prefab_asset` | Perform a batch of edit operations (add/remove component, add/remove child, set field) on a prefab asset, including object-reference fields and GameObject-level `layer`, `tag`, `isStatic`, `name` and `activeSelf` |
+| `edit_prefab_asset` | Perform a batch of edit operations (add/remove component, add/remove child, set field) on a prefab asset, including object-reference fields and GameObject-level `layer`, `tag`, `isStatic`, `name` and `activeSelf`; after saving, runs `OnValidate` on touched components and saves again |
 | `open_prefab_stage` | Open a prefab asset in Unity's prefab stage for editing; exit using `close_prefab_stage` |
 | `close_prefab_stage` | Close the active prefab stage; `save_changes` parameter resolves dirty stages without Unity's blocking save prompt, giving save or discard decision |
+
+After saving and reimporting, `edit_prefab_asset` runs `OnValidate` by reflection on the saved asset for every component of each type touched by `add_component` or `set_field` on the touched GameObject, then saves again, so state computed there (such as Netcode `NetworkObject` hashes) is persisted. If an `OnValidate` throws, the command still succeeds and the result gains a `warnings` string array listing components whose OnValidate was skipped or threw, including when the saved prefab cannot be loaded or a tracked path or component cannot be resolved.
 
 **Example: Set GameObject-level values.**
 

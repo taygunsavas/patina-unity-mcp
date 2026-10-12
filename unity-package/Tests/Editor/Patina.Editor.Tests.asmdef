@@ -1,7 +1,7 @@
 {
   "name": "Patina.Editor.Tests",
   "rootNamespace": "Patina.Editor.Tests",
-  "references": ["Patina.Editor", "UnityEngine.TestRunner", "UnityEditor.TestRunner"],
+  "references": ["Patina.Editor", "Patina.Tests.Fixtures", "UnityEngine.TestRunner", "UnityEditor.TestRunner"],
   "includePlatforms": ["Editor"],
   "excludePlatforms": [],
   "allowUnsafeCode": false,

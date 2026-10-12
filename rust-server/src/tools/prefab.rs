@@ -55,7 +55,10 @@ pub struct RevertPrefabOverridesArgs {
 pub struct EditPrefabAssetArgs {
     /// Asset path, e.g. "Assets/Prefabs/MyPrefab.prefab".
     pub asset_path: String,
-    /// Actions to run sequentially on the loaded prefab.
+    /// Actions to run sequentially on the loaded prefab. After the save and reimport, OnValidate is run by reflection on the saved asset
+    /// for every component of each type touched by add_component or set_field on the touched GameObject, then the asset is saved again.
+    /// Tracked paths follow GameObject renames and are dropped by remove_child and remove_component. The command still succeeds; the warnings
+    /// string array lists components whose OnValidate was skipped or threw, including when the saved prefab cannot be loaded or a tracked path or component cannot be resolved.
     pub actions: Vec<EditPrefabAssetAction>,
 }
 

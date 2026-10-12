@@ -30,6 +30,8 @@ namespace Patina.Editor.Commands
                         $"Failed to load prefab contents at: {capturedPath}"
                     );
 
+                var onValidateRunner = new PrefabOnValidateRunner(root.name);
+
                 try
                 {
                     foreach (JToken actToken in capturedActions)
@@ -65,6 +67,7 @@ namespace Patina.Editor.Commands
                                         $"Component type '{compType}' not found"
                                     );
                                 targetGo.AddComponent(type);
+                                onValidateRunner.Track(transformPath, type);
                                 break;
                             }
                             case "remove_component":
@@ -77,6 +80,7 @@ namespace Patina.Editor.Commands
                                 Component comp = targetGo.GetComponent(compType);
                                 if (comp != null)
                                 {
+                                    onValidateRunner.Untrack(transformPath, comp.GetType());
                                     UnityEngine.Object.DestroyImmediate(comp, true);
                                 }
                                 break;
@@ -107,6 +111,7 @@ namespace Patina.Editor.Commands
                                         "Cannot remove the root GameObject of a prefab"
                                     );
                                 UnityEngine.Object.DestroyImmediate(targetGo, true);
+                                onValidateRunner.RemoveSubtree(transformPath);
                                 break;
                             }
                             case "set_field":
@@ -132,6 +137,14 @@ namespace Patina.Editor.Commands
                                         targetGo == root,
                                         string.IsNullOrEmpty(compType)
                                     );
+                                    if (
+                                        string.Equals(
+                                            fieldName,
+                                            "name",
+                                            StringComparison.OrdinalIgnoreCase
+                                        )
+                                    )
+                                        onValidateRunner.Rename(transformPath, targetGo.name);
                                     break;
                                 }
 
@@ -148,6 +161,7 @@ namespace Patina.Editor.Commands
                                         $"Component '{compType}' not found on path '{transformPath}'"
                                     );
 
+                                onValidateRunner.Track(transformPath, comp.GetType());
                                 var so = new SerializedObject(comp);
                                 var sp = so.FindProperty(fieldName);
                                 if (sp == null)
@@ -237,11 +251,16 @@ namespace Patina.Editor.Commands
 
                 AssetDatabase.ImportAsset(capturedPath, ImportAssetOptions.ForceUpdate);
 
-                return new JObject
+                JArray warnings = onValidateRunner.Run(capturedPath);
+
+                var result = new JObject
                 {
                     ["success"] = true,
                     ["changedAssets"] = new JArray(capturedPath),
                 };
+                if (warnings.Count > 0)
+                    result["warnings"] = warnings;
+                return result;
             });
         }
 
