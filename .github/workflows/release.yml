@@ -390,17 +390,12 @@ jobs:
       - verify
       - package-upm
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
     env:
-      NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
       NPM_REGISTRY_URL: ${{ vars.NPM_REGISTRY_URL }}
     steps:
-      - name: Check npm publish prerequisites
-        shell: pwsh
-        run: |
-          if ([string]::IsNullOrWhiteSpace($env:NPM_TOKEN)) {
-            throw "NPM_TOKEN is required to publish a release."
-          }
-
       - name: Download release bundles
         uses: actions/download-artifact@v8
         with:
@@ -410,7 +405,14 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v7
         with:
-          node-version: 20
+          node-version: 24
+
+      - name: Install npm with trusted publishing support
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm install -g "npm@^11.5.1"
+          npm --version
 
       - name: Publish package to npm-compatible registry
         shell: pwsh
@@ -428,23 +430,6 @@ jobs:
             throw "Expected exactly one packaged tarball to publish, found $($tarballs.Count)."
           }
           $tarball = $tarballs[0].FullName
-
-          $registryUri = [Uri]$registryUrl
-          $registryPath = $registryUri.AbsolutePath.TrimEnd("/")
-          $registryTokenKey = if ([string]::IsNullOrWhiteSpace($registryPath) -or $registryPath -eq "/") {
-            "//{0}/:_authToken" -f $registryUri.Authority
-          } else {
-            "//{0}{1}/:_authToken" -f $registryUri.Authority, $registryPath + "/"
-          }
-
-          $tempNpmrc = Join-Path $env:RUNNER_TEMP "patina-npmrc"
-          @(
-            "registry=$registryUrl"
-            "$registryTokenKey=$env:NPM_TOKEN"
-            "always-auth=true"
-          ) | Set-Content -Path $tempNpmrc -Encoding ascii
-
-          $env:NPM_CONFIG_USERCONFIG = $tempNpmrc
 
           npm view "$packageName@$packageVersion" version --registry $registryUrl --prefer-online *> $null
           if ($LASTEXITCODE -eq 0) {
