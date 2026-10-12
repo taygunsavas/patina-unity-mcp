@@ -317,8 +317,8 @@ impl UnityMcpServer {
 
 #[tool_handler]
 impl ServerHandler for UnityMcpServer {
-    fn get_info(&self) -> ServerInfo {
-        let mut info = ServerInfo::default();
+    fn get_info(&self) -> ServerConfig {
+        let mut info = ServerConfig::default();
         info.server_info = Implementation::default();
         info.server_info.name = "patina".into();
         info.server_info.version = env!("CARGO_PKG_VERSION").into();
