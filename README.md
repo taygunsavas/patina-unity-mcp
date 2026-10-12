@@ -109,14 +109,14 @@ The 87 commands below are available through `patina_capabilities` and `patina_ca
 |------|-------------|
 | `add_component` | Add a component by short name (`Rigidbody`) or fully qualified name |
 | `remove_component` | Remove a component by type name |
-| `set_property` | Set any serialized property on a component using its SerializedObject path |
+| `set_property` | Set a public field, a public writable property or a `[SerializeField]` field (including inherited ones) on a component by name |
 | `get_game_object_components` | Return a lightweight component list for a GameObject |
 
 ### Batch Operations
 
 | Tool | What it does |
 |------|-------------|
-| `batch_set_properties` | Apply serialized property changes across multiple GameObjects |
+| `batch_set_properties` | Apply `set_property` style changes (public members or `[SerializeField]` fields) across multiple GameObjects |
 | `batch_add_components` | Add components to multiple GameObjects |
 | `batch_set_transform` | Apply transform changes to multiple GameObjects |
 

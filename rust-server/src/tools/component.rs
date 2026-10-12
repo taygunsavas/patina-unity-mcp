@@ -15,7 +15,7 @@ pub struct SetPropertyArgs {
     pub game_object_name: String,
     /// Component type name (e.g. "Transform", "Rigidbody").
     pub component_type: String,
-    /// Property name to set (e.g. "mass", "useGravity", "position").
+    /// Member name to set (e.g. "mass", "useGravity", "position"). Matches public fields, public writable properties and [SerializeField] fields, including private ones declared on base classes.
     pub property_name: String,
     /// Value as JSON matching the property type: float → 1.5, bool → true, int → 42, string → "text",
     /// Vector2 → [0.0,0.0], Vector3 → [0.0,0.0,0.0], Color → [1.0,0.0,0.0,1.0], Quaternion → [0.0,0.0,0.0,1.0].
