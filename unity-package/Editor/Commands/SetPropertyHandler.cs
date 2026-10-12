@@ -1,6 +1,5 @@
 using System;
 using System.Globalization;
-using System.Reflection;
 using System.Threading.Tasks;
 using Newtonsoft.Json.Linq;
 using UnityEditor;
@@ -43,11 +42,17 @@ namespace Patina.Editor.Commands
 
                 Undo.RecordObject(comp, $"Set {capturedPropName}");
 
-                Type compTypeObj = comp.GetType();
-                PropertyInfo prop = compTypeObj.GetProperty(
-                    capturedPropName,
-                    BindingFlags.Public | BindingFlags.Instance
-                );
+                if (
+                    !SerializedMemberResolver.TryResolve(
+                        comp.GetType(),
+                        capturedPropName,
+                        out Type memberType,
+                        out Action<object, object> assign
+                    )
+                )
+                    throw new InvalidOperationException(
+                        SerializedMemberResolver.NotFoundMessage(capturedPropName, capturedCompType)
+                    );
 
                 var refContext = new ObjectReferenceContext
                 {
@@ -56,35 +61,7 @@ namespace Patina.Editor.Commands
                     AllowSceneObjects = true,
                 };
 
-                if (prop != null && prop.CanWrite)
-                {
-                    object converted = ConvertValue(
-                        capturedValue,
-                        prop.PropertyType,
-                        refContext,
-                        capturedPropName
-                    );
-                    prop.SetValue(comp, converted);
-                }
-                else
-                {
-                    FieldInfo field = compTypeObj.GetField(
-                        capturedPropName,
-                        BindingFlags.Public | BindingFlags.Instance
-                    );
-                    if (field == null)
-                        throw new InvalidOperationException(
-                            $"Property or field '{capturedPropName}' not found on '{capturedCompType}'"
-                        );
-
-                    object converted = ConvertValue(
-                        capturedValue,
-                        field.FieldType,
-                        refContext,
-                        capturedPropName
-                    );
-                    field.SetValue(comp, converted);
-                }
+                assign(comp, ConvertValue(capturedValue, memberType, refContext, capturedPropName));
 
                 EditorUtility.SetDirty(comp);
 

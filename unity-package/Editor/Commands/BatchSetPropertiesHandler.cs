@@ -1,6 +1,5 @@
 using System;
 using System.Globalization;
-using System.Reflection;
 using System.Threading.Tasks;
 using Newtonsoft.Json.Linq;
 using UnityEditor;
@@ -99,6 +98,18 @@ namespace Patina.Editor.Commands
 
             Undo.RecordObject(comp, $"Set {propName}");
 
+            if (
+                !SerializedMemberResolver.TryResolve(
+                    comp.GetType(),
+                    propName,
+                    out Type memberType,
+                    out Action<object, object> assign
+                )
+            )
+                throw new InvalidOperationException(
+                    SerializedMemberResolver.NotFoundMessage(propName, compType)
+                );
+
             var refContext = new ObjectReferenceContext
             {
                 SearchRoot = go.transform.root.gameObject,
@@ -106,30 +117,7 @@ namespace Patina.Editor.Commands
                 AllowSceneObjects = true,
             };
 
-            Type t = comp.GetType();
-            PropertyInfo prop = t.GetProperty(
-                propName,
-                BindingFlags.Public | BindingFlags.Instance
-            );
-            if (prop != null && prop.CanWrite)
-            {
-                prop.SetValue(
-                    comp,
-                    ConvertValue(valueToken, prop.PropertyType, refContext, propName)
-                );
-            }
-            else
-            {
-                FieldInfo field = t.GetField(propName, BindingFlags.Public | BindingFlags.Instance);
-                if (field == null)
-                    throw new InvalidOperationException(
-                        $"Property/field '{propName}' not found on '{compType}'"
-                    );
-                field.SetValue(
-                    comp,
-                    ConvertValue(valueToken, field.FieldType, refContext, propName)
-                );
-            }
+            assign(comp, ConvertValue(valueToken, memberType, refContext, propName));
 
             EditorUtility.SetDirty(comp);
         }

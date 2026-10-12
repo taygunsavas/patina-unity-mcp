@@ -167,7 +167,7 @@ static COMMANDS: [CommandSpec; 87] = [
         "set_property",
         "component",
         SetPropertyArgs,
-        "Set a serialized property on a component."
+        "Set a public field, public writable property or [SerializeField] field (including inherited) on a component."
     ),
     command!(
         "remove_component",
@@ -467,7 +467,7 @@ static COMMANDS: [CommandSpec; 87] = [
         "batch_set_properties",
         "batch",
         BatchSetPropertiesArgs,
-        "Apply property mutations across multiple GameObjects."
+        "Apply set_property style mutations across multiple GameObjects."
     ),
     command!(
         "batch_add_components",
