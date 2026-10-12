@@ -625,7 +625,7 @@ static COMMANDS: [CommandSpec; 87] = [
         "edit_prefab_asset",
         "prefab",
         EditPrefabAssetArgs,
-        "Batch edit a prefab asset through Unity APIs, including object-reference fields."
+        "Batch edit a prefab asset through Unity APIs, including object-reference fields and GameObject layer, tag, isStatic, name and activeSelf."
     ),
     command!(
         "open_prefab_stage",

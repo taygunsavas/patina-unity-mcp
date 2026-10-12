@@ -90,6 +90,7 @@ namespace Patina.Editor.Commands
                                     );
                                 GameObject child = new GameObject(childName);
                                 child.transform.SetParent(targetGo.transform, false);
+                                GameObjectPropertyApplier.ApplyOptional(child, action);
                                 break;
                             }
                             case "remove_child":
@@ -114,10 +115,26 @@ namespace Patina.Editor.Commands
                                 string fieldName = action["field_name"]?.Value<string>();
                                 JToken value = action["value"];
 
-                                if (string.IsNullOrEmpty(compType))
-                                    throw new ArgumentException(
-                                        "component_type is required for set_field"
+                                if (GameObjectPropertyApplier.IsGameObjectTarget(compType))
+                                {
+                                    if (string.IsNullOrEmpty(fieldName))
+                                        throw new ArgumentException(
+                                            "field_name is required for set_field"
+                                        );
+                                    if (value == null)
+                                        throw new ArgumentException(
+                                            "value is required for set_field"
+                                        );
+                                    GameObjectPropertyApplier.ApplyField(
+                                        targetGo,
+                                        fieldName,
+                                        value,
+                                        targetGo == root,
+                                        string.IsNullOrEmpty(compType)
                                     );
+                                    break;
+                                }
+
                                 if (string.IsNullOrEmpty(fieldName))
                                     throw new ArgumentException(
                                         "field_name is required for set_field"
