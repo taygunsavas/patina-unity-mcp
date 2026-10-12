@@ -83,7 +83,7 @@ Prefer the staged local package for package-layout checks, import checks, and re
 
 ### Running the EditMode tests
 
-The package ships EditMode tests under `unity-package/Tests/Editor` (assembly `Patina.Editor.Tests`). Unity only compiles them when the consuming project lists the package under `testables`:
+The package ships EditMode tests under `unity-package/Tests/Editor` (assembly `Patina.Editor.Tests`, with shared MonoBehaviour fixtures in `unity-package/Tests/Fixtures`). Unity only compiles them when the consuming project lists the package under `testables`:
 
 ```json
 "testables": ["com.taygunsavas.patina-unity-mcp"]

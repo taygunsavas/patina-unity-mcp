@@ -1,0 +1,14 @@
+{
+  "name": "Patina.Tests.Fixtures",
+  "rootNamespace": "Patina.Editor.Tests.Fixtures",
+  "references": [],
+  "includePlatforms": [],
+  "excludePlatforms": [],
+  "allowUnsafeCode": false,
+  "overrideReferences": false,
+  "precompiledReferences": [],
+  "autoReferenced": false,
+  "defineConstraints": ["UNITY_INCLUDE_TESTS"],
+  "versionDefines": [],
+  "noEngineReferences": false
+}
