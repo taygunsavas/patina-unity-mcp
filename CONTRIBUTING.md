@@ -81,6 +81,16 @@ Then add this package from disk in Unity:
 
 Prefer the staged local package for package-layout checks, import checks, and release-candidate validation. Prefer the source checkout flow when you need the shortest edit-build-setup loop.
 
+### Running the EditMode tests
+
+The package ships EditMode tests under `unity-package/Tests/Editor` (assembly `Patina.Editor.Tests`). Unity only compiles them when the consuming project lists the package under `testables`:
+
+```json
+"testables": ["com.taygunsavas.patina-unity-mcp"]
+```
+
+Add that entry to the test project's `Packages/manifest.json`, then open `Window > General > Test Runner`, pick the EditMode tab and run `Patina.Editor.Tests`. Do not commit the `testables` entry to a project that is not a dedicated test project.
+
 ## Validation Expectations
 
 Run the checks that match your change before opening a pull request:
