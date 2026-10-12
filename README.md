@@ -257,8 +257,8 @@ To point a serialized field at another component inside the same prefab, pass an
 
 | Tool | What it does |
 |------|-------------|
-| `run_tests` | Start a Unity Test Runner execution |
-| `get_test_results` | Return results from the most recent test run |
+| `run_tests` | Start a Unity Test Runner execution. `filter` is a case-sensitive substring of a test name or full name; a filter matching no tests returns an error. The response includes `runId` and `matchedCount` (null when no filter is given) |
+| `get_test_results` | Return results from the most recent test run, with `runId`, `startedAt` and `finishedAt`. A domain reload during a run resets them to null with empty results, which means the run was lost |
 | `get_test_list` | List available Unity tests |
 
 ### Animation
