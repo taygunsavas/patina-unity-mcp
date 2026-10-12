@@ -37,7 +37,11 @@ namespace Patina.Editor.Commands
             {
                 DomainReloadRunStart startResult = DomainReloadTracker.BeginRun(CommandKey);
                 if (startResult == DomainReloadRunStart.Started)
+                {
+                    if (!EditorUtility.scriptCompilationFailed && !EditorApplication.isCompiling)
+                        CompilationErrorBuffer.Clear();
                     EditorUtility.RequestScriptReload();
+                }
                 return true;
             });
 
